@@ -1,0 +1,14 @@
+# SSH - never commit keys
+.ssh/id_*
+.ssh/known_hosts
+.ssh/authorized_keys
+
+# Local overrides - machine/work specific, never committed
+**/*.local
+**/*.local.*
+
+# macOS
+.DS_Store
+
+# Dotfiles repo itself
+.dotfiles/
