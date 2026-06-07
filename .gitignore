@@ -3,9 +3,13 @@
 .ssh/known_hosts
 .ssh/authorized_keys
 
-# Local overrides - machine/work specific, never committed
+# Machine/work specific overrides, never committed
 **/*.local
 **/*.local.*
+
+# Sensitive/private files, never committed
+**/*.private
+**/*.private.*
 
 # macOS
 .DS_Store
