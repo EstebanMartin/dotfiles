@@ -39,6 +39,8 @@ require("vim._core.ui2").enable({
             echomsg      = "msg", -- :echomsg output
             lua_print    = "msg", -- print() from lua
             wmsg         = "msg", -- warnings (W10, hit-bottom, etc.)
+            emsg         = "msg", -- error messages (E###)
+            echoerr      = "msg", -- :echoerr output
 
             -- pager: long/scrollable output you want to read
             list_cmd     = "pager", -- :ls, :set, :map, etc.
@@ -47,8 +49,6 @@ require("vim._core.ui2").enable({
             shell_cmd    = "pager", -- :! command echo
             shell_ret    = "pager", -- :! return code
             verbose      = "pager", -- 'verbose' output
-            emsg         = "pager", -- error messages (E###)
-            echoerr      = "pager", -- :echoerr output
             lua_error    = "pager", -- lua runtime errors
             rpc_error    = "pager", -- RPC/client errors
 
