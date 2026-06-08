@@ -1,0 +1,66 @@
+-- vim.opt.autocomplete = true -- enable automatic completion popup
+vim.opt.completeopt = {
+    "menuone",  -- show menu even for a single item
+    "fuzzy",    -- enable fuzzy matching and ranking
+    "noinsert", -- don't insert text until a match is selected
+    "nosort",
+}
+
+
+-- <C-y>: accept completion item {{{
+vim.keymap.set("i", "<C-y>",
+    ---@return string
+    function()
+        if vim.fn.pumvisible() == 0 then
+            return "<C-y>" -- no popup → fallback
+        end
+
+        local info = vim.fn.complete_info({ "selected", "items" })
+
+        if not info.items or #info.items == 0 then
+            return "<C-e>" -- popup empty → cancel
+        end
+
+        if info.selected == -1 then
+            return "<C-n><C-y>" -- select first, then confirm
+        end
+
+        return "<C-y>" -- confirm selected
+    end,
+    {
+        expr = true,
+        replace_keycodes = true,
+        desc = "Accept completion",
+    }
+)
+-- }}}
+
+vim.schedule(function()
+    vim.pack.add({ 'https://github.com/nvim-mini/mini.completion' })
+
+    local process_items_opts = { kind_priority = { Text = -1, Snippet = 99 } }
+    require('mini.completion').setup({
+        lsp_completion = {
+            -- Without this config autocompletion is set up through `:h 'completefunc'`.
+            -- Although not needed, setting up through `:h 'omnifunc'` is cleaner
+            -- (sets up only when needed) and makes it possible to use `<C-u>`.
+            source_func = 'omnifunc',
+            auto_setup = false,
+            process_items = function(items, base)
+                return MiniCompletion.default_process_items(items, base, process_items_opts)
+            end,
+        },
+    })
+
+    -- Set 'omnifunc' for LSP completion only when needed.
+    vim.api.nvim_create_autocmd('LspAttach', {
+        callback = function(ev)
+            vim.bo[ev.buf].omnifunc = 'v:lua.MiniCompletion.completefunc_lsp'
+        end,
+        desc = "Set 'omnifunc'",
+    })
+
+    -- Advertise to servers that Neovim now supports certain set of completion and
+    -- signature features through 'mini.completion'.
+    vim.lsp.config('*', { capabilities = MiniCompletion.get_lsp_capabilities() })
+end)

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime.version": "LuaJIT",
+  "diagnostics.globals": [
+    "vim"
+  ],
+  "workspace.checkThirdParty": false,
+  "workspace.library": [
+    "$VIMRUNTIME/lua",
+    "$VIMRUNTIME/lua/vim/_meta",
+    "${3rd}/luv/library",
+    "$XDG_DATA_HOME/nvim/site/pack/core/opt"
+  ],
+  "hint.enable": true,
+  "completion.callSnippet": "Replace",
+  "telemetry.enable": false
+}
