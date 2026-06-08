@@ -222,8 +222,12 @@ end, { buffer = true, desc = "Filter with yq" })
 vim.keymap.set("n", "<localleader>j", function()
     local buf = vim.api.nvim_get_current_buf()
 
-    -- guard against malformed YAML crashing the picker
-    local tree = vim.treesitter.get_parser(buf, "yaml"):parse()[1]
+    local parser = vim.treesitter.get_parser(buf, "yaml")
+    if not parser then
+        vim.notify("Could not parse YAML", vim.log.levels.WARN)
+        return
+    end
+    local tree = parser:parse()[1]
     if not tree then
         vim.notify("Could not parse YAML", vim.log.levels.WARN)
         return
