@@ -5,9 +5,24 @@ set -gx XDG_CONFIG_HOME "$HOME/.config"
 set -gx XDG_DATA_HOME "$HOME/.local/share"
 set -gx XDG_CACHE_HOME "$HOME/.cache"
 
+# =============================================================================
+# Editor
+# =============================================================================
 if type -q nvim
     set -gx EDITOR nvim
     set -gx VISUAL nvim
+end
+
+# =============================================================================
+# 1Password SSH agent
+# =============================================================================
+if test (uname) = Darwin
+    set -l sock "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+else
+    set -l sock "$HOME/.1password/agent.sock"
+end
+if test -S "$sock"
+    set -gx SSH_AUTH_SOCK "$sock"
 end
 
 # =============================================================================
@@ -28,7 +43,7 @@ end
 # =============================================================================
 # Path
 # =============================================================================
-export PATH="$HOME/.local/bin:$PATH"
+fish_add_path -g "$HOME/.local/bin"
 
 # =============================================================================
 # Golang
