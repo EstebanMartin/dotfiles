@@ -39,6 +39,8 @@ fi
 echo "Cloning dotfiles..."
 git clone --bare "https://github.com/EstebanMartin/dotfiles.git" "$DOTFILES_DIR"
 git --git-dir="$DOTFILES_DIR" --work-tree="$HOME" config status.showUntrackedFiles no
+git --git-dir="$DOTFILES_DIR" config branch.main.remote origin
+git --git-dir="$DOTFILES_DIR" config branch.main.merge refs/heads/main
 
 # Back up any files that would be overwritten by checkout
 conflicts=$(git --git-dir="$DOTFILES_DIR" --work-tree="$HOME" checkout 2>&1 | grep -E "^\s+\." | awk '{print $1}' || true)
