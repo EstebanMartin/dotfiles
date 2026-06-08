@@ -1,0 +1,99 @@
+[core]
+	editor = nvim
+
+[advice]
+	# Suppress the "skipped cherry pick" warning during rebases
+	skippedCherryPicks = false
+
+[commit]
+	gpgsign = true
+
+[gpg]
+	format = ssh
+
+[user]
+	name = EstebanMartin
+	email = 6530285+EstebanMartin@users.noreply.github.com
+
+[url "ssh://git@github.com/"]
+	# Always use SSH instead of HTTPS for GitHub
+	insteadOf = https://github.com/
+
+# Replaces large files in the repo with text pointers, storing the actual content on a separate server
+[filter "lfs"]
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+
+[init]
+	defaultBranch = master
+
+[merge]
+	# Like diff3 but cleaner — shows base content in conflict markers
+	conflictstyle = zdiff3
+
+[diff]
+	# Highlight moved blocks of code differently from added/removed lines
+	colorMoved = default
+
+	# Highlights the exact word or character that changed within a line
+	algorithm = histogram
+
+	# Ignores whitespace/indentation shifts when tracking moved code
+	colorMovedWS = allow-indentation-change
+
+[interactive]
+	# Instantly accepts staging choices without needing to press Enter
+	singleKey = true
+
+[rerere]
+	# Remember conflict resolutions and replay them automatically
+	enabled = true
+
+[rebase]
+	# Stash uncommitted changes before rebase, restore after
+	autoStash = true
+
+	# Automatically update dependent branches during rebase (requires Git 2.38+)
+	updateRefs = true
+
+[branch]
+	# Show most recently committed branches first
+	sort = -committerdate
+
+[pull]
+	rebase = true
+
+[fetch]
+	# Remove remote-tracking branches that no longer exist on the remote
+	prune = true
+
+	# Automatically delete local tags that were removed from the remote
+	pruneTags = true
+
+[push]
+	# Automatically set upstream when pushing a new branch
+	autoSetupRemote = true
+
+[help]
+	# Suggest a correction on typos and ask before running it
+	autocorrect = prompt
+
+[tag]
+	# Sort by version number instead of lexicographically (v1.2 before v1.10)
+	sort = version:refname
+
+[alias]
+	start = "!f() { \
+		remote=$(git remote | grep -E '^(upstream|canonical)$' | head -1 || echo origin); \
+		git fetch -p \"$remote\" && \
+		git switch -c \"$1\" \"$remote/HEAD\" && \
+		git push -u origin \"$1\"; \
+	}; f"
+	save = "!f() { \
+		git add -A && \
+		git commit -m \"${1:-CHECKPOINT}\"; \
+	}; f"
+	resume = reset HEAD~1
+	root = rev-parse --show-toplevel
