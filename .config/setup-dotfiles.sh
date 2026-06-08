@@ -12,10 +12,15 @@ if ! command -v brew >/dev/null 2>&1; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
-for tool in git fish neovim tmux fzf jq; do
+for tool in git fish neovim tree-sitter-cli tmux fzf jq; do
     echo "Installing $tool..."
     brew install --quiet "$tool"
 done
+
+if ! command -v tree-sitter >/dev/null 2>&1; then
+    echo "Installing tree-sitter..."
+    brew install --quiet tree-sitter --HEAD
+fi
 
 FISH_PATH="$(command -v fish)"
 if ! grep -qF "$FISH_PATH" /etc/shells; then
