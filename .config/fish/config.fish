@@ -31,12 +31,15 @@ end
 # Homebrew
 # =============================================================================
 if test "$os" = Darwin && test -x /opt/homebrew/bin/brew
-    eval (/opt/homebrew/bin/brew shellenv)
-    if test -d (brew --prefix)"/share/fish/completions"
-        set -gp fish_complete_path (brew --prefix)/share/fish/completions
+    set -gx HOMEBREW_PREFIX /opt/homebrew
+    set -gx HOMEBREW_CELLAR /opt/homebrew/Cellar
+    set -gx HOMEBREW_REPOSITORY /opt/homebrew
+    fish_add_path -g /opt/homebrew/bin /opt/homebrew/sbin
+    if test -d "$HOMEBREW_PREFIX/share/fish/completions"
+        set -gp fish_complete_path "$HOMEBREW_PREFIX/share/fish/completions"
     end
-    if test -d (brew --prefix)"/share/fish/vendor_completions.d"
-        set -gp fish_complete_path (brew --prefix)/share/fish/vendor_completions.d
+    if test -d "$HOMEBREW_PREFIX/share/fish/vendor_completions.d"
+        set -gp fish_complete_path "$HOMEBREW_PREFIX/share/fish/vendor_completions.d"
     end
 end
 
@@ -49,11 +52,7 @@ fish_add_path -g "$HOME/.local/bin"
 # Golang
 # =============================================================================
 if type -q go
-    # Add Go's bin dir to PATH persistently:
-    # - fish_add_path deduplicates automatically (no risk of duplicates).
-    # - -U stores it in fish_user_paths so it's remembered across sessions.
-    fish_add_path -U (go env GOBIN)
-    fish_add_path -U (go env GOPATH)/bin
+    fish_add_path -g "$HOME/go/bin"
 end
 
 # =============================================================================
@@ -108,8 +107,11 @@ bind -M insert \cp complete-and-search
 # =============================================================================
 # Abbreviations
 # =============================================================================
-abbr -a bup 'ssh -T -q git@github.com >/dev/null 2>&1; brew update; brew upgrade; brew cleanup'
-abbr -a cdr 'cd $(git rev-parse --show-toplevel)'
+
+abbr -a cdr 'cd (git rev-parse --show-toplevel)'
+if type -q brew
+    abbr -a bup 'ssh -T -q git@github.com >/dev/null 2>&1; brew update; brew upgrade; brew cleanup'
+end
 
 # =============================================================================
 # Aliases
