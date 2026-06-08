@@ -47,7 +47,7 @@ require("vim._core.ui2").enable({
             shell_out    = "pager", -- :! stdout
             shell_err    = "pager", -- :! stderr
             shell_cmd    = "pager", -- :! command echo
-            shell_ret    = "pager", -- :! return code
+            shell_ret    = "msg",   -- :! return code
             verbose      = "pager", -- 'verbose' output
             lua_error    = "pager", -- lua runtime errors
             rpc_error    = "pager", -- RPC/client errors
@@ -56,8 +56,8 @@ require("vim._core.ui2").enable({
             confirm      = "cmd",
         },
         msg = {
-            timeout = 3000,
-            height  = 0.3,
+            timeout = 2000,
+            height  = 0.1,
         },
         pager = {
             height = 0.5,
