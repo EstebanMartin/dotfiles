@@ -1,6 +1,8 @@
 # =============================================================================
 # Environment
 # =============================================================================
+set -l os (uname)
+
 set -gx XDG_CONFIG_HOME "$HOME/.config"
 set -gx XDG_DATA_HOME "$HOME/.local/share"
 set -gx XDG_CACHE_HOME "$HOME/.cache"
@@ -16,7 +18,7 @@ end
 # =============================================================================
 # 1Password SSH agent
 # =============================================================================
-if test (uname) = Darwin
+if test "$os" = Darwin
     set -l sock "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 else
     set -l sock "$HOME/.1password/agent.sock"
@@ -26,18 +28,16 @@ if test -S "$sock"
 end
 
 # =============================================================================
-# Terminal
-# =============================================================================
-set -x TERM xterm-256color
-if test "$TERM_PROGRAM" = ghostty
-    set -gx TERM xterm-256color
-end
-
-# =============================================================================
 # Homebrew
 # =============================================================================
-if test (uname) = Darwin
+if test "$os" = Darwin && test -x /opt/homebrew/bin/brew
     eval (/opt/homebrew/bin/brew shellenv)
+    if test -d (brew --prefix)"/share/fish/completions"
+        set -gp fish_complete_path (brew --prefix)/share/fish/completions
+    end
+    if test -d (brew --prefix)"/share/fish/vendor_completions.d"
+        set -gp fish_complete_path (brew --prefix)/share/fish/vendor_completions.d
+    end
 end
 
 # =============================================================================
@@ -66,10 +66,24 @@ end
 # Interactive-only config below
 status is-interactive; or return
 
+set fish_greeting ""
+
+# =============================================================================
+# Ghostty shell integration
+# =============================================================================
+if set -q GHOSTTY_RESOURCES_DIR
+    source "$GHOSTTY_RESOURCES_DIR/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
+end
+
 # =============================================================================
 # Vi mode
 # =============================================================================
-fish_vi_key_bindings
+
+set -g fish_key_bindings fish_vi_key_bindings
+set fish_cursor_default block
+set fish_cursor_insert line
+set fish_cursor_replace_one underscore
+set fish_cursor_visual block
 
 # =============================================================================
 # FZF
