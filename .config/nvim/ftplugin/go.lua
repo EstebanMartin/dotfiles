@@ -13,11 +13,21 @@ vim.api.nvim_create_autocmd("BufWritePre", {
     buffer = vim.api.nvim_get_current_buf(),
     desc = "Organize Go imports before save",
     callback = function(args)
-        local client = vim.lsp.get_clients({ bufnr = args.buf })[1]
+        local client = vim.lsp.get_clients({ bufnr = args.buf, name = "gopls" })[1]
         if not client then return end
 
         local params = vim.lsp.util.make_range_params(0, client.offset_encoding) --[[@as any]]
-        params.context = { diagnostics = {}, only = { "source.organizeImports" } }
+        local diags = vim.tbl_map(function(d)
+            return {
+                range = {
+                    start = { line = d.lnum, character = d.col },
+                    ["end"] = { line = d.end_lnum or d.lnum, character = d.end_col or d.col + 1 },
+                },
+                severity = d.severity,
+                message = d.message,
+            }
+        end, vim.diagnostic.get(args.buf))
+        params.context = { diagnostics = diags, only = { "source.organizeImports" } }
 
         local results = vim.lsp.buf_request_sync(
             args.buf,
