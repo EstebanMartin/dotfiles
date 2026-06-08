@@ -218,8 +218,13 @@ end, { buffer = true, desc = "Fix loose JSON" })
 -- <localleader>j: Jump to JSON path
 -- =============================================================================
 vim.keymap.set("n", "<localleader>j", function()
-    local buf   = vim.api.nvim_get_current_buf()
-    local root  = vim.treesitter.get_parser(buf, "json"):parse()[1]:root()
+    local buf    = vim.api.nvim_get_current_buf()
+    local parser = vim.treesitter.get_parser(buf, "json")
+    if not parser then
+        vim.notify("No JSON parser available", vim.log.levels.WARN)
+        return
+    end
+    local root = parser:parse()[1]:root()
     local paths = {}
 
     walk_json_paths(buf, root, "", paths)
