@@ -6,7 +6,7 @@ set -e
 # ==============================================================================
 
 brew_install() {
-    brew install "$@"
+    brew install --quiet "$@" >/dev/null
 }
 
 case "$(uname)" in
