@@ -17,6 +17,17 @@ for tool in git fish neovim tmux fzf jq; do
     brew install --quiet "$tool"
 done
 
+FISH_PATH="$(command -v fish)"
+if ! grep -qF "$FISH_PATH" /etc/shells; then
+    echo "Adding fish to /etc/shells (requires sudo)..."
+    echo "$FISH_PATH" | sudo tee -a /etc/shells >/dev/null
+fi
+
+if [ "$SHELL" != "$FISH_PATH" ]; then
+    echo "Setting fish as default shell..."
+    chsh -s "$FISH_PATH"
+fi
+
 DOTFILES_DIR="$HOME/.dotfiles"
 
 if [ -d "$DOTFILES_DIR" ]; then
