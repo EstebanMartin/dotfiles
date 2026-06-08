@@ -1,0 +1,3 @@
+version: "1"
+aliases:
+  prs: "!sh -c 'gh pr list --json number,title | jq -r \".[] | \\\"\\(.number)\\t\\(.title)\\\"\" | fzf --header=\"Number\\tTitle\" --bind \"enter:execute(echo Checking out PR {1} && gh pr checkout {1})+abort\"'"
