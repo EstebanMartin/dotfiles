@@ -1,5 +1,8 @@
 font-size = 17
 term = xterm-256color
 copy-on-select = clipboard
-macos-titlebar-style = hidden
+
+title = " "
+macos-titlebar-style = transparent
+macos-titlebar-proxy-icon = hidden
 theme = dark:Rose Pine,light:Rose Pine Dawn
