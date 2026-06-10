@@ -120,6 +120,7 @@ end
 # =============================================================================
 
 alias config='git --git-dir=$HOME/.dotfiles/ --work-tree=$HOME'
+alias ffg='fg (jobs | tail -n +1 | awk -F\'\t\' \'{print $2 "\t" $4}\' | fzf --height=~10 --accept-nth 1)'
 
 # =============================================================================
 # Prompt theme
