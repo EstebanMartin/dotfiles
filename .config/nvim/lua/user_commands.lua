@@ -208,6 +208,7 @@ vim.api.nvim_create_user_command("ToggleTerm", function(opts)
         term.win = vim.api.nvim_open_win(term.buf, true, {
             split = "below",
             height = 15,
+            win = -1,
         })
 
         if not alive then
