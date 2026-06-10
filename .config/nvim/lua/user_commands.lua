@@ -181,53 +181,50 @@ vim.api.nvim_create_user_command(
 )
 
 -- ====================================================================
--- Term: open or reuse a terminal, optionally run a shell command
+-- ToggleTerm: toggle terminal, optionally run a shell command
 -- ====================================================================
-vim.api.nvim_create_user_command(
-    "Term",
-    function(opts)
-        local cmd = opts.args ~= "" and opts.args or nil
+local term = { buf = nil, win = nil }
 
-        -- Find a visible terminal window
-        local term_win, term_buf
-        for _, win in ipairs(vim.api.nvim_list_wins()) do
-            local buf = vim.api.nvim_win_get_buf(win)
-            if vim.bo[buf].buftype == "terminal" then
-                term_win = win
-                term_buf = buf
-                break
-            end
+vim.api.nvim_create_user_command("ToggleTerm", function(opts)
+    local cmd = opts.args ~= "" and opts.args or nil
+
+    if term.win and vim.api.nvim_win_is_valid(term.win) then
+        if not cmd then
+            vim.api.nvim_win_close(term.win, true)
+            term.win = nil
+            return
+        end
+        vim.api.nvim_set_current_win(term.win)
+    else
+        local job_id = term.buf
+            and vim.api.nvim_buf_is_valid(term.buf)
+            and vim.b[term.buf].terminal_job_id
+        local alive = job_id and vim.fn.jobwait({ job_id }, 0)[1] == -1
+
+        if not alive then
+            term.buf = vim.api.nvim_create_buf(false, true)
         end
 
-        if not term_win then
-            -- Open a new split at 30% of screen height
-            local height = math.floor(vim.o.lines * 0.3)
-            vim.cmd("botright " .. height .. "split | terminal")
-            term_buf = vim.api.nvim_get_current_buf()
-            term_win = vim.api.nvim_get_current_win()
+        term.win = vim.api.nvim_open_win(term.buf, true, {
+            split = "below",
+            height = 15,
+        })
 
-            if cmd then
-                local job_id = vim.b[term_buf].terminal_job_id
-                -- Defer to wait for shell to be ready
-                vim.defer_fn(function()
-                    vim.api.nvim_chan_send(job_id, cmd .. "\n")
-                end, 400)
-            end
-        else
-            if cmd then
-                local job_id = vim.b[term_buf].terminal_job_id
-                if job_id then
-                    vim.api.nvim_chan_send(job_id, cmd .. "\n")
-                end
-            end
+        if not alive then
+            vim.fn.jobstart(vim.o.shell, { term = true })
         end
+    end
 
-        vim.api.nvim_set_current_win(term_win)
-        vim.cmd.startinsert()
-    end,
-    {
-        desc = "Open or reuse a terminal, optionally run a command",
-        nargs = "*",
-        complete = "shellcmd",
-    }
-)
+    vim.cmd("startinsert")
+    if not cmd then return end
+    vim.schedule(function()
+        vim.api.nvim_feedkeys(cmd .. "\n", "t", false)
+    end)
+end, {
+    desc = "toggle terminal, optionally run a shell command",
+    nargs = "*",
+    complete = "shellcmd",
+})
+
+vim.keymap.set("n", "<C-Space>", "<cmd>ToggleTerm<CR>", { desc = "Toggle terminal", silent = true })
+vim.keymap.set("t", "<C-Space>", "<C-\\><C-n><cmd>ToggleTerm<CR>", { desc = "Toggle terminal", silent = true })

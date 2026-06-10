@@ -213,7 +213,7 @@ local function start_debug()
         and make_cmd:format(escaped_root)
         or build_cmd:format(escaped_root, binary, binary)
 
-    vim.cmd("Term " .. cmd) -- start the process in the terminal
+    vim.cmd("ToggleTerm " .. cmd) -- start the process in the terminal
 
     -- poll every 500ms for the process PID; attach DAP once it appears
     -- cap at 20 attempts (10s) to avoid polling forever if process fails
@@ -320,7 +320,7 @@ vim.keymap.set("n", "<localleader>r", function()
         and ("cd %s && make run"):format(vim.fn.shellescape(root))
         or ("cd %s && go run ."):format(vim.fn.shellescape(root))
 
-    vim.cmd("Term " .. cmd)
+    vim.cmd("ToggleTerm " .. cmd)
 end, { buffer = true, desc = "Run" })
 
 -- =============================================================================
@@ -329,5 +329,5 @@ end, { buffer = true, desc = "Run" })
 vim.keymap.set("n", "<localleader>t", function()
     -- run tests for the package in the current file's directory
     local buf_dir = vim.fn.shellescape(vim.fn.expand("%:p:h"))
-    vim.cmd(("Term go test %s"):format(buf_dir))
+    vim.cmd(("ToggleTerm go test %s"):format(buf_dir))
 end, { buffer = true, desc = "Go test" })
