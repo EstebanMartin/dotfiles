@@ -58,6 +58,23 @@ if type -q go
 end
 
 # =============================================================================
+# Podman → Docker symlinks
+# =============================================================================
+# Symlinks rather than aliases so bash scripts and subprocesses can find them
+
+if type -q podman; and not type -q docker
+    mkdir -p ~/.local/bin
+    ln -sf (which podman) ~/.local/bin/docker
+    fish_add_path ~/.local/bin
+end
+
+if type -q podman-compose; and not type -q docker-compose
+    mkdir -p ~/.local/bin
+    ln -sf (which podman-compose) ~/.local/bin/docker-compose
+    fish_add_path ~/.local/bin
+end
+
+# =============================================================================
 # Local overrides
 # =============================================================================
 if test -f ~/.config/fish/config.local.fish
