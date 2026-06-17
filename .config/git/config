@@ -5,12 +5,6 @@
 	# Suppress the "skipped cherry pick" warning during rebases
 	skippedCherryPicks = false
 
-[commit]
-	gpgsign = true
-
-[gpg]
-	format = ssh
-
 [user]
 	name = EstebanMartin
 	email = 6530285+EstebanMartin@users.noreply.github.com
@@ -97,3 +91,6 @@
 	}; f"
 	resume = reset HEAD~1
 	root = rev-parse --show-toplevel
+
+[include]
+    path = ~/.config/git/local_config
