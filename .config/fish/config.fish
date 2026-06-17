@@ -19,15 +19,16 @@ end
 # =============================================================================
 # 1Password SSH agent
 # =============================================================================
+set -l sock
 if test "$os" = Darwin
-    set -g sock "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+    set sock "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 else
-    set -g sock "$HOME/.1password/agent.sock"
+    set sock "$HOME/.1password/agent.sock"
 end
+
 if test -S "$sock"
     set -gx SSH_AUTH_SOCK "$sock"
 end
-set -e sock
 
 # =============================================================================
 # Homebrew
