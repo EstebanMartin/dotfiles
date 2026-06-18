@@ -9,7 +9,7 @@ vim.api.nvim_set_hl(0, "GoCoverageUncovered", { link = "DiagnosticError" })
 -- Organize imports on save
 -- =============================================================================
 vim.api.nvim_create_autocmd("BufWritePre", {
-    group = vim.api.nvim_create_augroup("my.go", { clear = true }),
+    group = vim.api.nvim_create_augroup("my.go", { clear = false }),
     buffer = vim.api.nvim_get_current_buf(),
     desc = "Organize Go imports before save",
     callback = function(args)
