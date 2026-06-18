@@ -143,103 +143,95 @@ alias ffg='fg (jobs | tail -n +1 | awk -F\'\t\' \'{print $2 "\t" $4}\' | fzf --h
 # =============================================================================
 # Prompt theme
 # =============================================================================
-
 function fish_prompt
-    set -l last_status $status
+    set -l last_status $status # must be first — $status is overwritten by every command
 
+    # git rev-parse returns the repo root path, or empty string if not in a repo
     set -l git_root (git rev-parse --show-toplevel 2>/dev/null)
 
     if test -n "$git_root"
-        # One call for everything: branch, ahead/behind, stash, file statuses
+
+        # single git call: --porcelain=v2 for stable machine-readable format,
+        # --branch adds branch/upstream/ahead-behind headers, --show-stash adds stash count
         set -l gs (git status --porcelain=v2 --branch --show-stash 2>/dev/null)
 
-        # Branch name
-        set -l git_branch (string match -r --groups-only '^# branch\.head (.+)' $gs)
-        set -l is_detached false
-        if test "$git_branch" = '(detached)'
-            set is_detached true
-            set git_branch (string sub -l 7 (string match -r --groups-only '^# branch\.oid (.+)' $gs))
-        end
+        # ── Render ───────────────────────────────────────────────────
 
-        # Ahead / behind (absent when no upstream)
-        set -l ab (string match -r --groups-only '^# branch\.ab \+(\d+) -(\d+)' $gs)
-        set -l ahead 0
-        set -l behind 0
-        if test (count $ab) -ge 2
-            set ahead $ab[1]
-            set behind $ab[2]
-        end
-
-        # Stash count (absent when no stashes)
-        set -l stash_count (string match -r --groups-only '^# stash (\d+)' $gs)
-        test -z "$stash_count"; and set stash_count 0
-
-        # File-status lines only (strip headers)
-        set -l fl (string match -r '^[^#]' $gs)
-
-        # ── Render ────────────────────────────────────────────────────
         echo -n (set_color cyan)(basename $git_root)(set_color normal)
 
+        # path relative to repo root, capped at 4 segments to keep it short
         set -l cwd (pwd)
         if test "$cwd" != "$git_root"
             set -l parts (string split --no-empty '/' (string replace -- "$git_root/" '' $cwd))
-            if test (count $parts) -gt 4
-                set parts $parts[-4..-1]
-            end
+            test (count $parts) -gt 4; and set parts $parts[-4..-1]
             echo -n ' at '(set_color yellow)(string join '/' $parts)(set_color normal)
         end
 
-        if $is_detached
-            echo -n ' on '(set_color bryellow)"detached@$git_branch"(set_color normal)
+        # header line looks like "# branch.head main"; --groups-only returns only the captured group
+        set -l git_branch (string match -r --groups-only '^# branch\.head (.+)' $gs)
+        if test "$git_branch" = '(detached)'
+            # not on a branch — use a 7-char short hash from branch.oid instead
+            set -l short_hash (string sub -l 7 (string match -r --groups-only '^# branch\.oid (.+)' $gs))
+            echo -n ' on '(set_color bryellow)"detached@$short_hash"(set_color normal)
         else
             echo -n ' on '(set_color magenta)$git_branch(set_color normal)
         end
 
+        # ── Status symbols ───────────────────────────────────────────
+
+        # each element is a fully colored string; joined with spaces into [...] at the end
         set -l syms
 
-        # ✚ staged:    type 1/2 entry, X (pos 2) != '.'
+        # all header lines start with '#'; -v inverts the match to keep only file-status lines
+        # porcelain v2 file lines look like "1 XY ..." where X = staged, Y = unstaged, '.' = no change
+        set -l fl (string match -v -r '^#' $gs)
+
+        # in porcelain v2, the char right after "1 " is the staged status — '.' means no staged change
         test (count (string match -r '^[12] [^.]' $fl)) -gt 0
-        and set -a syms (set_color green) '✚' (set_color normal)
+        and set -a syms (set_color green)'✚'(set_color normal)
 
-        # ! unstaged:  type 1/2 entry, Y (pos 3) != '.'
+        # the char after that is the unstaged status — same idea, '.' means no unstaged change
         test (count (string match -r '^[12] .[^.]' $fl)) -gt 0
-        and set -a syms (set_color yellow) '!' (set_color normal)
+        and set -a syms (set_color yellow)'!'(set_color normal)
 
-        # ? untracked: lines starting with '?'
+        # untracked files get their own line type starting with '?'
         test (count (string match -r '^\?' $fl)) -gt 0
-        and set -a syms (set_color red) '?' (set_color normal)
+        and set -a syms (set_color red)'?'(set_color normal)
 
-        # ✖ conflicts: unmerged entries start with 'u'
+        # unmerged/conflicted files start with 'u' in porcelain v2
         test (count (string match -r '^u' $fl)) -gt 0
-        and set -a syms (set_color brred) '✖' (set_color normal)
+        and set -a syms (set_color brred)'✖'(set_color normal)
 
+        # stash line looks like "# stash 2"; absent entirely when stash is empty, so default to 0
+        set -l stash_count (string match -r --groups-only '^# stash (\d+)' $gs)
+        test -z "$stash_count"; and set stash_count 0
         test "$stash_count" -gt 0
-        and set -a syms (set_color blue) "⚑$stash_count" (set_color normal)
+        and set -a syms (set_color blue)"⚑$stash_count"(set_color normal)
 
-        test "$ahead" -gt 0
-        and set -a syms (set_color cyan) "↑$ahead" (set_color normal)
-
-        test "$behind" -gt 0
-        and set -a syms (set_color cyan) "↓$behind" (set_color normal)
+        # branch.ab line looks like "# branch.ab +3 -1"; absent entirely when no upstream is set
+        set -l ab (string match -r --groups-only '^# branch\.ab \+(\d+) -(\d+)' $gs)
+        if test (count $ab) -ge 2 # guards against the no-upstream case
+            test $ab[1] -gt 0; and set -a syms (set_color cyan)"↑$ab[1]"(set_color normal)
+            test $ab[2] -gt 0; and set -a syms (set_color cyan)"↓$ab[2]"(set_color normal)
+        end
 
         if test (count $syms) -gt 0
-            echo -n ' ['(string join '' $syms)']'
+            echo -n ' ['(string join ' ' $syms)']'
         end
 
     else
-        # Not in a repo — last 4 of absolute path, ~ for home
+        # not in a repo — show current path, ~ substituted for home, last 4 segments max
         set -l cwd (string replace -- $HOME '~' (pwd))
         set -l parts (string split --no-empty '/' $cwd)
-        if test (count $parts) -gt 4
-            set parts $parts[-4..-1]
-        end
+        test (count $parts) -gt 4; and set parts $parts[-4..-1]
         echo -n (set_color yellow)(string join '/' $parts)(set_color normal)
     end
 
+    # red dot if the last command failed (non-zero exit code)
     if test $last_status -ne 0
         echo -n ' '(set_color red)'●'(set_color normal)
     end
 
-    echo ''
-    echo -n '› '
+    echo '' # end the info line
+    echo -n '› ' # second line: the actual input prompt
 end
