@@ -16,7 +16,11 @@ vim.api.nvim_create_user_command(
             or file
 
         if opts.range > 0 then
-            rel_path = rel_path .. ":" .. opts.line1 .. ":" .. opts.line2
+            if opts.line1 == opts.line2 then
+                rel_path = rel_path .. ":" .. opts.line1
+            else
+                rel_path = rel_path .. ":" .. opts.line1 .. ":" .. opts.line2
+            end
         end
 
         vim.fn.setreg("+", rel_path)
