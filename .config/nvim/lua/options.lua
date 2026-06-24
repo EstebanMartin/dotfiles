@@ -42,7 +42,7 @@ vim.opt.completeopt = {
     "noinsert",               -- don't insert text until a match is selected
     "nosort",
 }
-vim.o.autocomplete = true
+vim.o.autocomplete = false
 vim.o.autocompletedelay = 250
 
 
