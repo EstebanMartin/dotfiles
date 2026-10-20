@@ -13,6 +13,7 @@
 *.local.*
 *.private
 *.private.*
+work/
 
 # macOS
 .DS_Store
