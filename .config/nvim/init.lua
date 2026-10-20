@@ -1,25 +1,27 @@
--- =============================================================================
--- Workaround: OSC 11 background color detection inside tmux
--- =============================================================================
--- Tmux intercepts OSC 11 queries, causing Neovim to miss terminal bg changes.
--- Sending the DCS passthrough sequence on FocusGained forces tmux to re-query
--- and cache the actual background color from the outer terminal, allowing
--- Neovim to detect light/dark mode changes.
--- Ref: https://github.com/neovim/neovim/issues/17070#issuecomment-1086775760
-vim.api.nvim_create_autocmd("FocusGained", {
-    callback = function()
-        if vim.env.TMUX then
-            vim.loop.fs_write(
-                2,                 -- fd 2 = stderr, points directly to terminal (bypasses nvim buffering)
-                "\27Ptmux;"        -- DCS start + tmux passthrough prefix
-                .. "\27\27]11;?\7" -- double-escaped OSC 11 query (tmux strips one \27); \7 = BEL terminator
-                .. "\27\\",        -- DCS terminator (String Terminator)
-                -1,                -- write at current position (no offset)
-                function() end     -- no-op callback (required by libuv API)
-            )
-        end
-    end,
-})
+-- read by the startup time notification in lua/autocmd.lua
+vim.g.config_start = vim.uv.hrtime()
+
+-- ====================================================================
+-- Open file:line:col from CLI arg (replaces fileline.nvim)
+-- ====================================================================
+if vim.fn.argc() == 1 then
+    local arg = vim.fn.argv(0) --[[@as string]]
+    local file, line, col = arg:match("^(.+):(%d+):?(%d*)$")
+    if file and vim.uv.fs_stat(file) then
+        vim.schedule(function()
+            vim.cmd.edit(vim.fn.fnameescape(file))
+            vim.api.nvim_win_set_cursor(0, {
+                tonumber(line),
+                col ~= "" and (tonumber(col) - 1) or 0,
+            })
+        end)
+    end
+end
+
+-- ====================================================================
+-- Bruno requests: no built-in rule, and ftplugin/ runs only after detection
+-- ====================================================================
+vim.filetype.add({ extension = { bru = "bru" } })
 
 -- ====================================================================
 -- Experimental UI2: floating cmdline and messages
@@ -72,14 +74,15 @@ require("vim._core.ui2").enable({
 -- Load files at /lua
 -- ====================================================================
 local directory = vim.fn.stdpath("config") .. "/lua"
-vim.iter(vim.fn.readdir(directory))
-    :filter(function(f) return f:sub(-4) == ".lua" end)
-    :each(function(f)
+for _, f in ipairs(vim.fn.readdir(directory)) do
+    if f:sub(-4) == ".lua" then
         local module = f:sub(1, -5) -- strips .lua
         local ok, err = pcall(require, module)
-        if ok then return end
-        vim.notify(
-            "Error loading " .. module .. ": " .. err,
-            vim.log.levels.ERROR
-        )
-    end)
+        if not ok then
+            vim.notify(
+                "Error loading " .. module .. ": " .. err,
+                vim.log.levels.ERROR
+            )
+        end
+    end
+end

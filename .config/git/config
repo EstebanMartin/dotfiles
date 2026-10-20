@@ -6,8 +6,24 @@
 	skippedCherryPicks = false
 
 [user]
-	name = EstebanMartin
+	name = Esteban Ramirez
 	email = 6530285+EstebanMartin@users.noreply.github.com
+	# Public half of the SSH key in 1Password; override in config.local for a different key
+	signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBA054wZte0l5xLqpx2KjcM8glUMRL+l1FYwbtI/ydtW
+
+[commit]
+	# Sign every commit with the SSH key above
+	gpgsign = true
+
+	# Show the diff being committed below the message in the editor
+	verbose = true
+
+[gpg]
+	format = ssh
+
+[gpg "ssh"]
+	# 1Password signs with the key without it ever leaving the vault
+	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
 
 [url "ssh://git@github.com/"]
 	# Always use SSH instead of HTTPS for GitHub
@@ -31,11 +47,11 @@
 	# Highlight moved blocks of code differently from added/removed lines
 	colorMoved = default
 
-	# Highlights the exact word or character that changed within a line
-	algorithm = histogram
-
 	# Ignores whitespace/indentation shifts when tracking moved code
 	colorMovedWS = allow-indentation-change
+
+	# Diff algorithm that aligns on unique lines, giving more readable hunks
+	algorithm = histogram
 
 [interactive]
 	# Instantly accepts staging choices without needing to press Enter
@@ -80,7 +96,8 @@
 
 [alias]
 	start = "!f() { \
-		remote=$(git remote | grep -E '^(upstream|canonical)$' | head -1 || echo origin); \
+		remote=$(git remote | grep -E '^(upstream|canonical)$' | head -1); \
+		remote=${remote:-origin}; \
 		git fetch -p \"$remote\" && \
 		git switch -c \"$1\" \"$remote/HEAD\" && \
 		git push -u origin \"$1\"; \
@@ -92,5 +109,6 @@
 	resume = reset HEAD~1
 	root = rev-parse --show-toplevel
 
+# Machine-specific overrides (e.g. work email), untracked via the *.local.* ignore rule; last so it wins
 [include]
-    path = ~/.config/git/local_config
+	path = ~/.config/git/config.local

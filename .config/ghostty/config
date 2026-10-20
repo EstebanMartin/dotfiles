@@ -1,8 +1,19 @@
+# -- Font --
+font-family = "JetBrainsMono Nerd Font Mono"
 font-size = 17
-term = xterm-256color
-copy-on-select = clipboard
+font-thicken = true
+adjust-cell-height = 10%
+font-feature = -calt
 
+# -- Appearance --
 title = " "
+adjust-cursor-thickness = 4
 macos-titlebar-style = transparent
 macos-titlebar-proxy-icon = hidden
+
 theme = dark:Rose Pine,light:Rose Pine Dawn
+# theme = dark:Catppuccin Mocha,light:Catppuccin Latte
+
+# -- Behavior --
+copy-on-select = clipboard
+macos-option-as-alt = right

@@ -1,6 +1,7 @@
--- ====================================================================
+-- =================================================================
 -- get_oil_winbar: show current directory in winbar
--- ====================================================================
+-- =================================================================
+---@return string
 function _G.get_oil_winbar()
     local bufnr = vim.api.nvim_win_get_buf(vim.g.statusline_winid)
     local dir = require("oil").get_current_dir(bufnr)
@@ -11,9 +12,9 @@ function _G.get_oil_winbar()
     return vim.api.nvim_buf_get_name(bufnr)
 end
 
--- ====================================================================
+-- =================================================================
 -- Setup
--- ====================================================================
+-- =================================================================
 local function setup()
     vim.pack.add({
         { src = 'https://github.com/stevearc/oil.nvim' },
@@ -21,47 +22,33 @@ local function setup()
     ---@module 'oil'
     ---@type oil.SetupOpts
     require("oil").setup({
-        watch_for_changes = true,
-        use_default_keymaps = false,
+        lsp_file_methods = {
+            autosave_changes = false,
+        },
         win_options = {
             winbar = "%!v:lua.get_oil_winbar()",
         },
-        keymaps = {
-            ["<CR>"]  = "actions.select",
-            ["<C-s>"] = {
-                "actions.select",
-                opts = { horizontal = true },
-                desc = "Open in horizontal split",
-            },
-            ["<C-v>"] = {
-                "actions.select",
-                opts = { vertical = true },
-                desc = "Open in vertical split",
-            },
-            ["-"]     = { "actions.parent", mode = "n" },
-            ["<BS>"]  = { "actions.parent", mode = "n" },
-            ["="]     = { "actions.open_cwd", mode = "n" },
-            ["~"]     = "<cmd>edit $HOME<CR>",
-            ["gq"]    = "actions.close",
-            ["gc"]    = { "actions.cd", mode = "n" },
-            ["g?"]    = { "actions.show_help", mode = "n" },
-            ["g."]    = { "actions.toggle_hidden", mode = "n" },
-        },
+        watch_for_changes = true,
     })
 end
 
--- load immediately if nvim was opened on a directory, otherwise defer
-if vim.fn.argc() > 0
-    and vim.fn.isdirectory(vim.fn.argv(0) --[[@as string]]) == 1
-then
+---@return boolean
+local function is_dir_being_opened()
+    if vim.fn.argc() == 0 then
+        return false
+    end
+    local arg = vim.fn.argv(0) --[[@as string]]
+    return vim.fn.isdirectory(arg) == 1
+end
+
+if is_dir_being_opened() then
     setup()
 else
     vim.schedule(setup)
 end
 
--- ====================================================================
+-- =================================================================
 -- -: Open parent directory
--- ====================================================================
-vim.keymap.set("n", "-", function()
-    require("oil").open()
-end, { desc = "Open parent directory" })
+-- =================================================================
+local open =  function() require("oil").open() end
+vim.keymap.set("n", "-", open, { desc = "Open parent directory" })

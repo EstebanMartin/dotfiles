@@ -24,18 +24,8 @@ vim.schedule(function()
     })
 
     local dap = require("dap")
-    dap.listeners.before.attach.dapview_config = function()
-        require("dap-view").open()
-    end
-    dap.listeners.before.launch.dapview_config = function()
-        require("dap-view").open()
-    end
-    dap.listeners.before.event_terminated.dapview_config = function()
-        require("dap-view").close()
-    end
-    dap.listeners.before.event_exited.dapview_config = function()
-        require("dap-view").close()
-    end
+    -- opening/closing dap-view with the session is handled by auto_toggle
+    dap.defaults.fallback.switchbuf = "usevisible,usetab,uselast"
 end)
 
 -->> <leader>dc: Debug continue

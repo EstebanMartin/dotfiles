@@ -1,3 +1,6 @@
 version: "1"
 aliases:
-  prs: "!sh -c 'gh pr list --json number,title | jq -r \".[] | \\\"\\(.number)\\t\\(.title)\\\"\" | fzf --header=\"Number\\tTitle\" --bind \"enter:execute(echo Checking out PR {1} && gh pr checkout {1})+abort\"'"
+  # Fuzzy-pick an open PR and check it out (plain `gh pr checkout` only lists the latest 10)
+  prs: >-
+    !gh pr list --limit 100 --json number,title --jq '.[] | "\(.number)\t\(.title)"'
+    | fzf --delimiter='\t' --bind 'enter:become(gh pr checkout {1})'

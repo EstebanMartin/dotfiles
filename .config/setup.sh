@@ -1,129 +1,234 @@
-#!/usr/bin/env sh
-set -e
+#!/bin/sh
+# Idempotent: every step checks the current state first and only acts when it
+# differs, so rerunning after changing a setting applies just that change.
+set -eu
 
-# ==============================================================================
-# Homebrew
-# ==============================================================================
-
+# Install a Homebrew formula only if it isn't already installed
 brew_install() {
-    brew install --quiet "$@" >/dev/null
+  brew list --formula "$1" >/dev/null 2>&1 || brew install "$1"
 }
 
-case "$(uname)" in
-    Darwin) BREW_PREFIX="/opt/homebrew" ;;
-    Linux)  BREW_PREFIX="/home/linuxbrew/.linuxbrew" ;;
-    *) echo "error: unsupported OS $(uname)" >&2; exit 1 ;;
-esac
+# Install a global npm package only if it isn't already installed
+npm_install() {
+  npm list -g "$1" >/dev/null 2>&1 || npm install -g "$1"
+}
 
-if [ ! -x "$BREW_PREFIX/bin/brew" ]; then
-    echo "Installing homebrew"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Install a Homebrew cask only if it isn't already installed
+brew_cask_install() {
+  brew list --cask "$1" >/dev/null 2>&1 || brew install --cask "$1"
+}
+
+# Write a macOS default only if it differs from the current value; sets
+# defaults_changed=1 so the caller knows to restart the affected app.
+# Usage: set_default <domain> <key> <-bool|-int|-float|-string> <value>
+set_default() {
+  current="$(defaults read "$1" "$2" 2>/dev/null || true)"
+  case "$3" in
+    -bool) if [ "$4" = true ]; then want=1; else want=0; fi ;;
+    *) want="$4" ;;
+  esac
+  if [ "$current" != "$want" ]; then
+    defaults write "$1" "$2" "$3" "$4"
+    echo "Set $1 $2 = $4"
+    defaults_changed=1
+  fi
+}
+
+# =============================================================================
+# macOS
+# =============================================================================
+
+# --- Dock: auto-hide, on the left, no delay/animation ---
+defaults_changed=0
+set_default com.apple.dock autohide -bool true
+set_default com.apple.dock orientation -string left
+set_default com.apple.dock autohide-delay -float 0
+set_default com.apple.dock autohide-time-modifier -float 0
+set_default com.apple.dock show-recents -bool false  # no "recent apps" in the Dock
+set_default com.apple.dock mru-spaces -bool false    # don't reorder Spaces by recent use
+if [ "$defaults_changed" = 1 ]; then killall Dock; fi
+
+# --- Appearance: switch between light and dark automatically (applies after logout) ---
+if [ "$(defaults read -g AppleInterfaceStyleSwitchesAutomatically 2>/dev/null || true)" != "1" ]; then
+  defaults write -g AppleInterfaceStyleSwitchesAutomatically -bool true
+  defaults delete -g AppleInterfaceStyle 2>/dev/null || true
+  echo "Set appearance to switch automatically"
 fi
 
-if ! command -v brew >/dev/null 2>&1; then
-    echo "Loading homebrew"
-    eval "$("$BREW_PREFIX/bin/brew" shellenv)"
+# --- Keyboard: fast key repeat, no accent popup (applies after logout) ---
+set_default -g ApplePressAndHoldEnabled -bool false
+set_default -g KeyRepeat -int 2
+set_default -g InitialKeyRepeat -int 15
+
+# --- Text input: no autocorrect, smart quotes or smart dashes ---
+set_default -g NSAutomaticSpellingCorrectionEnabled -bool false
+set_default -g NSAutomaticQuoteSubstitutionEnabled -bool false
+set_default -g NSAutomaticDashSubstitutionEnabled -bool false
+
+# --- Finder: show hidden files, extensions and path bar; no .DS_Store on network/USB ---
+defaults_changed=0
+set_default com.apple.finder AppleShowAllFiles -bool true
+set_default -g AppleShowAllExtensions -bool true
+set_default com.apple.finder ShowPathbar -bool true
+set_default com.apple.desktopservices DSDontWriteNetworkStores -bool true
+set_default com.apple.desktopservices DSDontWriteUSBStores -bool true
+if [ "$defaults_changed" = 1 ]; then killall Finder; fi
+
+# =============================================================================
+# Homebrew
+# =============================================================================
+
+# --- Install ---
+if ! command -v brew >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
+  echo "Installing Homebrew..."
+  # Non-interactive mode can't ask for a password, so cache sudo credentials first
+  sudo -v
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
-echo "Done. Brew $(brew --version | awk '{print $2}') is ready."
 
-# ==============================================================================
-# Git
-# ==============================================================================
+# --- Configure: make brew available in this session (Apple Silicon or Intel) ---
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
 
-echo "Installing git and git-lfs"
-brew_install git git-lfs
-echo "Done. Git $(git --version | awk '{print $3}') is ready."
-
-# ==============================================================================
-# dotfiles repository
-# ==============================================================================
+# =============================================================================
+# Dotfiles (bare repo with $HOME as the work tree)
+# =============================================================================
 
 DOTFILES_DIR="$HOME/.dotfiles"
+DOTFILES_BACKUP="$HOME/.dotfiles-backup"
+
+# --- Install: Homebrew's git is newer than the one bundled with macOS ---
+brew_install git
+brew_install git-lfs
+
+dot() {
+  git --git-dir="$DOTFILES_DIR" --work-tree="$HOME" "$@"
+}
+
+# --- Install: clone over HTTPS (works before SSH keys exist), push over SSH ---
+# Only on first run; after that, syncing is `dot pull` (alias in config.fish)
 if [ ! -d "$DOTFILES_DIR" ]; then
-    echo "Setting up dotfiles bare repository..."
-    git clone --bare "https://github.com/EstebanMartin/dotfiles.git" "$DOTFILES_DIR"
-    git --git-dir="$DOTFILES_DIR" --work-tree="$HOME" config status.showUntrackedFiles no
-    git --git-dir="$DOTFILES_DIR" config branch.main.remote origin
-    git --git-dir="$DOTFILES_DIR" config branch.main.merge refs/heads/main
-    git --git-dir="$DOTFILES_DIR" --work-tree="$HOME" checkout -f
+  git clone --bare https://github.com/EstebanMartin/dotfiles.git "$DOTFILES_DIR"
+  dot remote set-url --push origin git@github.com:EstebanMartin/dotfiles.git
+
+  # A bare clone doesn't track remote branches, so `pull` wouldn't know what to pull
+  dot config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  dot fetch origin
+  DOTFILES_BRANCH="$(dot symbolic-ref --short HEAD)"
+  dot branch --set-upstream-to="origin/$DOTFILES_BRANCH" "$DOTFILES_BRANCH"
+
+  # Move aside any existing files the checkout would overwrite
+  dot ls-tree -r --name-only HEAD | while IFS= read -r f; do
+    if [ -e "$HOME/$f" ] || [ -L "$HOME/$f" ]; then
+      mkdir -p "$DOTFILES_BACKUP/$(dirname "$f")"
+      mv "$HOME/$f" "$DOTFILES_BACKUP/$f"
+      echo "Backed up ~/$f to $DOTFILES_BACKUP/$f"
+    fi
+  done
+  dot checkout
 fi
 
-# ==============================================================================
-# Fish
-# ==============================================================================
-
-echo "Installing fish and fish_lsp"
-brew_install fish fish-lsp
-
-fish_path="$(command -v fish)"
-
-if ! grep -qxF "$fish_path" /etc/shells; then
-    echo "Registering $fish_path as a valid login shell..."
-    echo "$fish_path" | sudo tee -a /etc/shells
-else
-    echo "$fish_path is already registered in /etc/shells."
+# --- Configure: hide the rest of $HOME from `dot status` ---
+if [ "$(dot config --get status.showUntrackedFiles || true)" != "no" ]; then
+  dot config status.showUntrackedFiles no
 fi
 
-if [ "$SHELL" = "$fish_path" ]; then
-    echo "fish is already your default shell."
-else
-    echo "Setting fish as your default shell..."
-    chsh -s "$fish_path"
-    echo "Done. Open a new terminal or re-login for the change to take effect."
+# =============================================================================
+# Fish (shell config itself lives in the dotfiles: ~/.config/fish/config.fish)
+# =============================================================================
+
+# --- Install ---
+brew_install fish
+
+# --- Configure: set as default shell ---
+FISH_PATH="$(brew --prefix)/bin/fish"
+if ! grep -qx "$FISH_PATH" /etc/shells; then
+  echo "$FISH_PATH" | sudo tee -a /etc/shells >/dev/null
+fi
+# Compare against the account's login shell, not $SHELL: $SHELL is inherited
+# from whatever launched this script and can be stale or different
+LOGIN_SHELL="$(dscl . -read "/Users/$(id -un)" UserShell | awk '{print $2}')"
+if [ "$LOGIN_SHELL" != "$FISH_PATH" ]; then
+  chsh -s "$FISH_PATH"
 fi
 
-echo "Done. Fish $(fish --version | awk '{print $3}') is ready."
+# --- Configure: no "Last login" message ---
+[ -e "$HOME/.hushlogin" ] || touch "$HOME/.hushlogin"
 
-# ==============================================================================
+# =============================================================================
 # Neovim
-# ==============================================================================
+# =============================================================================
 
-echo "Installing neovim and dependencies"
-brew_install neovim ripgrep jq yq
+# --- Install ---
+brew_install neovim
 
-echo "Installing lsp servers"
-brew_install lua-language-server yaml-language-server
+# --- ripgrep: used by fzf-lua's live_grep_native (<leader>fg) ---
+brew_install ripgrep
 
-echo "Done. Neovim $(nvim --version | head -1) is ready."
-echo "Plugins will be installed automatically on first launch via vim.pack."
+# --- Tree-sitter: CLI that nvim-treesitter builds parsers with ---
+brew_install tree-sitter-cli
 
-# ==============================================================================
-# GitHub CLI
-# ==============================================================================
+# --- Language servers (vim.lsp.enable in plugin/nvim-lspconfig.lua) ---
+brew_install efm-langserver
+brew_install fish-lsp
+brew_install lua-language-server
+brew_install yaml-language-server
 
-echo "Installing gh"
-brew_install gh
+# --- Tools used by ftplugin/json.lua and ftplugin/bru.lua ---
+brew_install jq
+brew_install bruno-cli
+brew_install node
+npm_install fixjson
 
-echo "Done. gh $(gh --version | head -1 | awk '{print $3}') is ready."
-echo "Run 'gh auth login' to authenticate with GitHub."
+# =============================================================================
+# Go
+# =============================================================================
 
-# ==============================================================================
-# Tmux
-# ==============================================================================
+# --- Install: toolchain, plus gopls (the language server nvim's gopls config uses) ---
+brew_install go
+brew_install gopls
 
-echo "Installing tmux"
-brew_install tmux
+# --- Install: debugger for nvim-dap-go, linter that efm runs ---
+brew_install delve
+brew_install golangci-lint
 
-echo "Done. Tmux $(tmux -V | awk '{print $2}') is ready."
-
-# ==============================================================================
+# =============================================================================
 # fzf
-# ==============================================================================
+# =============================================================================
 
-echo "Installing fzf"
+# --- Install ---
 brew_install fzf
 
-echo "Done. fzf $(fzf --version | awk '{print $1}') is ready."
+# =============================================================================
+# tmux (config in ~/.config/tmux)
+# =============================================================================
 
-# ==============================================================================
-# Go
-# ==============================================================================
+# --- Install ---
+brew_install tmux
 
-echo "Installing go and gopls"
-brew_install go gopls
+# =============================================================================
+# GitHub CLI (config in ~/.config/gh; run `gh auth login` once to authenticate)
+# =============================================================================
 
-echo "Done. Go $(go version | awk '{print $3}') is ready."
+# --- Install ---
+brew_install gh
 
+# =============================================================================
+# Ghostty
+# =============================================================================
 
+# --- Install ---
+brew_cask_install ghostty
 
+# --- Font: JetBrainsMono Nerd Font (used in ~/.config/ghostty/config) ---
+brew_cask_install font-jetbrains-mono-nerd-font
 
+# =============================================================================
+# Claude Code
+# =============================================================================
+
+# --- Install: native installer (auto-updates in the background) ---
+[ -x "$HOME/.local/bin/claude" ] || /bin/bash -c "$(curl -fsSL https://claude.ai/install.sh)"

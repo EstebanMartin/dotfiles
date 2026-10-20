@@ -47,13 +47,24 @@ vim.schedule(function()
                 cyclic = true,
             }),
 
-            -- Logical & comparison
+            -- Logical (words only; symbolic operators live in the "operators"
+            -- group below, so <C-a> before `x > 5` increments 5, not flips >)
             augend.constant.alias.bool,
             augend.constant.new({
                 elements = { "and", "or" },
                 word = true,
                 cyclic = true,
             }),
+
+            -- Versions
+            augend.semver.alias.semver,
+        },
+    })
+
+    -- Operators: only via g<C-a>/g<C-x>, so they never shadow a number
+    -- later on the line
+    dial.augends:register_group({
+        operators = {
             augend.constant.new({
                 elements = { "&&", "||" },
                 word = false,
@@ -79,24 +90,25 @@ vim.schedule(function()
                 word = false,
                 cyclic = true,
             }),
-
-            -- Versions
-            augend.semver.alias.semver,
         },
     })
 
-    -- Lua-specific augends
-    dial.augends:on_filetype({
-        lua = vim.list_extend(
-            { augend.constant.new({
-                elements = { "==", "~=" },
-                word = false,
-                cyclic = true,
-            }) },
-            dial.augends:get("default")
-        ),
-    })
+    -- Lua spells "not equal" ~=, so it gets its own operators group
+    local operators_lua = vim.list_extend(
+        { augend.constant.new({
+            elements = { "==", "~=" },
+            word = false,
+            cyclic = true,
+        }) },
+        dial.augends:get("operators")
+    )
+    dial.augends:register_group({ operators_lua = operators_lua })
 end)
+
+---@return string dial group for the current buffer's operators
+local function operators_group()
+    return vim.bo.filetype == "lua" and "operators_lua" or "operators"
+end
 
 -->> <C-a>: Dial increment {{{
 vim.keymap.set("n", "<C-a>",
@@ -126,4 +138,19 @@ vim.keymap.set("x", "<C-x>",
         require("dial.map").manipulate("decrement", "visual")
     end,
     { desc = "Dial decrement (visual)" }
+)
+
+-->> g<C-a> / g<C-x>: Dial operators (==/!=, </>, &&/||, ...) {{{
+vim.keymap.set("n", "g<C-a>",
+    function()
+        require("dial.map").manipulate("increment", "normal", operators_group())
+    end,
+    { desc = "Dial operator forward" }
+)
+
+vim.keymap.set("n", "g<C-x>",
+    function()
+        require("dial.map").manipulate("decrement", "normal", operators_group())
+    end,
+    { desc = "Dial operator backward" }
 )

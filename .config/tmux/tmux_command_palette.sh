@@ -12,9 +12,6 @@ cmd_detach_session() { tmux detach-client; }
 commands+=("Enter Copy Mode")
 cmd_enter_copy_mode() { tmux copy-mode; }
 
-commands+=("Enter Resize Mode")
-cmd_enter_resize_mode() { tmux switch-client -T resize-mode; }
-
 commands+=("Kill Current Pane")
 cmd_kill_current_pane() { tmux kill-pane; }
 
@@ -25,20 +22,10 @@ commands+=("Kill Current Window")
 cmd_kill_current_window() { tmux kill-window; }
 
 commands+=("Kill Other Panes")
-cmd_kill_other_panes() {
-    read -r -p "Kill other panes? (y/n) " confirm
-    [[ "$confirm" == "y" ]] || exit 0
-    current=$(tmux display -p '#{pane_id}')
-    tmux list-panes -F '#{pane_id}' | grep -v "$current" | xargs -I{} tmux kill-pane -t {}
-}
+cmd_kill_other_panes() { tmux confirm-before -p "Kill other panes? (y/n)" "kill-pane -a"; }
 
 commands+=("Kill Other Windows")
-cmd_kill_other_windows() {
-    read -r -p "Kill other windows? (y/n) " confirm
-    [[ "$confirm" == "y" ]] || exit 0
-    current=$(tmux display-message -p '#{window_index}')
-    tmux list-windows -F '#{window_index}' | grep -v "$current" | xargs -I{} tmux kill-window -t {}
-}
+cmd_kill_other_windows() { tmux confirm-before -p "Kill other windows? (y/n)" "kill-window -a"; }
 
 commands+=("Kill Server")
 cmd_kill_server() { tmux kill-server; }
@@ -62,11 +49,7 @@ commands+=("Restart Pane")
 cmd_restart_pane() { tmux respawn-pane -k; }
 
 commands+=("Rotate Pane Focus")
-cmd_rotate_pane_focus() {
-    zoomed=$(tmux display -p '#{window_zoomed_flag}')
-    tmux select-pane -t :.+
-    [[ "$zoomed" -eq 1 ]] && tmux resize-pane -Z
-}
+cmd_rotate_pane_focus() { tmux select-pane -Z -t :.+; } # -Z keeps the window zoomed
 
 commands+=("Select Pane")
 cmd_select_pane() { tmux display-panes; }
@@ -76,9 +59,9 @@ cmd_select_session() { tmux choose-tree -s; }
 
 commands+=("Select Window")
 cmd_select_window() {
-    tmux list-windows -F '#W' \
-        | fzf-tmux -p --prompt="Window > " \
-        | xargs tmux select-window -t
+    tmux list-windows -F '#{window_index}: #{window_name}' \
+        | fzf --tmux center --prompt="Window > " --delimiter=: \
+            --bind 'enter:become(tmux select-window -t :{1})'
 }
 
 commands+=("Split Horizontal")
