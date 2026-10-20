@@ -105,8 +105,8 @@ vim.opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
 -- Indentation
 -- ====================================================================
 vim.opt.expandtab = true -- convert tabs to spaces
-vim.opt.shiftwidth = 2   -- spaces per indent level
-vim.opt.tabstop = 2      -- spaces a <Tab> counts for
+vim.opt.shiftwidth = 4   -- spaces per indent level
+vim.opt.tabstop = 4      -- spaces a <Tab> counts for
 
 -- ====================================================================
 -- Modelines
