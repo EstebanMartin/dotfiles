@@ -29,12 +29,9 @@ end
 # =============================================================================
 # Editor
 # =============================================================================
-if type -q nvim; and not set -q EDITOR
-    set -gx EDITOR nvim
-end
-
-if type -q nvim; and not set -q VISUAL
-    set -gx VISUAL nvim
+if type -q nvim
+    set -q EDITOR; or set -gx EDITOR nvim
+    set -q VISUAL; or set -gx VISUAL nvim
 end
 
 # =============================================================================
@@ -250,7 +247,7 @@ end
 # =============================================================================
 
 alias dot='git --git-dir=$HOME/.dotfiles/ --work-tree=$HOME'
-alias ffg='fg (jobs | tail -n +1 | awk -F\'\t\' \'{print $2 "\t" $4}\' | fzf --height=~10 --accept-nth 1)'
+alias ffg='fg (jobs | awk -F\'\t\' \'{print $2 "\t" $4}\' | fzf --height=~10 --accept-nth 1)'
 
 # =============================================================================
 # Prompt theme
