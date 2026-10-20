@@ -46,9 +46,6 @@ function M.header_lines(headers)
     return lines
 end
 
-local function esc(s) return (s:gsub("%%", "%%%%")) end
-
-
 local function test_counts(r)
     local pass = 0
     for _, t in ipairs(r.tests) do
