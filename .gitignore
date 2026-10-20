@@ -1,18 +1,20 @@
-# SSH - never commit keys
-.ssh/id_*
-.ssh/known_hosts
-.ssh/authorized_keys
+# SSH: keys, host lists and config stay per machine
+.ssh/
 
-# Machine/work specific overrides, never committed
-**/*.local
-**/*.local.*
+# Per-machine state written by tools
+.config/fish/fish_variables
+.config/gh/hosts.yml
+.mycli-history
+.mycli.log
 
-# Sensitive/private files, never committed
-**/*.private
-**/*.private.*
+# Machine/work-specific overrides and private files, never committed
+*.local
+*.local.*
+*.private
+*.private.*
 
 # macOS
 .DS_Store
 
-# Dotfiles repo itself
+# The bare repo itself (git only skips folders named .git automatically)
 .dotfiles/
