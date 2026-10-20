@@ -1,5 +1,8 @@
 [core]
 	editor = nvim
+	# Cache the untracked-file scan in the index so `git status` (and the shell prompt)
+	# stays fast in big repos; bare-layout clones (wt clone) get no per-repo setting
+	untrackedCache = true
 
 [advice]
 	# Suppress the "skipped cherry pick" warning during rebases
