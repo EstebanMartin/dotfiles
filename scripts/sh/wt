@@ -1,0 +1,502 @@
+#!/bin/sh
+# wt - git worktree helper for the bare-repo layout:
+#   <project>/.bare  +  <project>/<branch>/  (one worktree per branch, directory named after the branch)
+#
+# Commands that move you somewhere (switch, checkout, prs, clone) write the target path to
+# $WT_CD_FILE when set, so the shell wrapper from `wt init <shell>` can cd. Without the wrapper
+# they print the path instead:  cd "$(wt switch my-branch)"
+
+set -u
+
+usage() {
+  cat <<'EOF'
+usage: wt <command> [args]
+
+  root                        current worktree, or the project dir when not inside one
+  list                        worktrees and their branches            (alias: ls)
+  switch [branch]             fzf over worktrees, or jump to <branch> (alias: sw)
+  checkout [--push] <branch> [base]
+                              worktree for <branch>: reuse the branch, or create it
+                              untracked from <base> (default: HEAD of upstream/canonical/origin)
+                              --push also pushes a new branch to origin       (alias: co)
+  prs                         fzf over open PRs (gh), worktree named after the PR branch
+  clone <repo> [dir]          bare clone via gh, plus a worktree for the default branch
+  remove [branch...]          remove worktrees (branches are kept); with no args,
+                              fzf multi-select (Tab to mark)        (alias: rm)
+  init <bash|zsh|fish>        print the shell wrapper + completions; eval it in your rc file
+EOF
+}
+
+die() {
+  echo "wt: $*" >&2
+  exit 1
+}
+
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    die "'$1' is required"
+  fi
+}
+
+cd_to() {
+  if [ -n "${WT_CD_FILE:-}" ]; then
+    printf '%s\n' "$1" >"$WT_CD_FILE"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+# directory that holds the worktrees: the project dir of a bare clone, the repo's parent otherwise
+base_dir() {
+  if ! _common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+    die "not inside a git repository"
+  fi
+  case $_common in
+    */.git) dirname "$(dirname "$_common")" ;;
+    *) dirname "$_common" ;;
+  esac
+}
+
+# "branch<TAB>path" per worktree (bare entry skipped, detached HEADs shown as "(detached)")
+entries() {
+  git worktree list --porcelain | awk '
+    function flush() {
+      if (p != "" && !bare) print (b == "" ? "(detached)" : b) "\t" p
+    }
+    /^worktree / { flush(); p = substr($0, 10); b = ""; bare = 0; next }
+    /^bare$/ { bare = 1 }
+    /^branch / { b = substr($0, 8); sub("^refs/heads/", "", b) }
+    END { flush() }'
+}
+
+path_for_branch() {
+  entries | awk -F'\t' -v b="$1" '$1 == b { print $2; found = 1; exit } END { exit !found }'
+}
+
+path_is_worktree() {
+  entries | awk -F'\t' -v p="$1" '$2 == p { found = 1; exit } END { exit !found }'
+}
+
+# the remote new work is based on: upstream or canonical (fork setups), else origin
+default_remote() {
+  _r=$(git remote | grep -E '^(upstream|canonical)$' | head -1)
+  echo "${_r:-origin}"
+}
+
+# fzf over worktrees, prints the chosen branch(es) (nothing when cancelled); args go to fzf
+pick_worktree() {
+  need fzf
+  entries | fzf --delimiter='\t' --with-nth=1 --header='Branch' "$@" | cut -f1
+}
+
+# branch names also become directory names (and can come from forks), so reject anything
+# git wouldn't accept as a branch: leading '-', '..', empty components, control characters...
+valid_branch() {
+  case $1 in
+    -*) die "invalid branch name: $1" ;;
+  esac
+  if ! git check-ref-format "refs/heads/$1" 2>/dev/null; then
+    die "invalid branch name: $1"
+  fi
+}
+
+cmd_root() {
+  if git rev-parse --show-toplevel 2>/dev/null; then
+    return 0
+  fi
+  if ! _c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+    die "not inside a git repository"
+  fi
+  dirname "$_c"
+}
+
+cmd_list() {
+  entries | awk -F'\t' '{ printf "%-40s %s\n", $1, $2 }'
+}
+
+cmd_switch() {
+  if [ $# -gt 0 ]; then
+    _branch=$1
+  else
+    _branch=$(pick_worktree)
+    if [ -z "$_branch" ]; then
+      return 0
+    fi
+  fi
+
+  if ! _p=$(path_for_branch "$_branch"); then
+    die "no worktree for branch '$_branch'"
+  fi
+  cd_to "$_p"
+}
+
+cmd_checkout() {
+  _push=0
+  if [ "${1:-}" = "--push" ]; then
+    _push=1
+    shift
+  fi
+  if [ $# -lt 1 ]; then
+    die "usage: wt checkout [--push] <branch> [base]"
+  fi
+
+  _b=$1
+  _base=${2:-}
+  valid_branch "$_b"
+  case $_base in
+    -*) die "invalid base: $_base" ;;
+  esac
+
+  # already has a worktree: just go there
+  if _p=$(path_for_branch "$_b"); then
+    cd_to "$_p"
+    return 0
+  fi
+
+  _d=$(base_dir)/$_b
+  if [ -e "$_d" ]; then
+    die "$_d already exists and is not a worktree of this repo"
+  fi
+
+  if git show-ref -q --verify "refs/heads/$_b"; then
+    # local branch exists
+    git worktree add "$_d" "$_b" >&2 || return 1
+  elif git show-ref -q --verify "refs/remotes/origin/$_b"; then
+    # branch only exists on origin
+    git worktree add --track -b "$_b" "$_d" "origin/$_b" >&2 || return 1
+  else
+    # new branch: based on <base>, never tracking it, so a plain push can't land on staging/main
+    if [ -z "$_base" ]; then
+      _base=$(default_remote)/HEAD
+    fi
+    _remote=${_base%%/*}
+    git fetch -q "$_remote" 2>/dev/null
+    if ! git rev-parse -q --verify "$_remote/HEAD" >/dev/null 2>&1; then
+      git remote set-head "$_remote" -a >/dev/null 2>&1
+    fi
+    git worktree add --no-track -b "$_b" "$_d" "$_base" >&2 || return 1
+    if [ "$_push" = 1 ]; then
+      git -C "$_d" push -u origin "$_b" >&2 || return 1
+    fi
+  fi
+  cd_to "$_d"
+}
+
+# fast-forward an existing PR worktree to the PR's current head; never blocks the cd on failure
+update_pr_worktree() {
+  _up=$1
+  _un=$2
+  _ub=$3
+
+  # only when the worktree is on the PR branch
+  if [ "$(git -C "$_up" symbolic-ref -q --short HEAD)" != "$_ub" ]; then
+    return 0
+  fi
+
+  if ! git fetch -q "$(default_remote)" "pull/$_un/head" >&2; then
+    echo "wt: could not fetch PR #$_un" >&2
+    return 0
+  fi
+  if ! _sha=$(git rev-parse -q --verify FETCH_HEAD); then
+    return 0
+  fi
+  if ! git -C "$_up" merge --ff-only "$_sha" >&2; then
+    echo "wt: could not fast-forward '$_ub' to PR #$_un (local changes or diverged history)" >&2
+  fi
+  return 0
+}
+
+cmd_prs() {
+  need gh
+  need fzf
+
+  if ! _sel=$(gh pr list --json number,headRefName,title,isCrossRepository \
+    -q '.[] | "\(.number)\t\(.headRefName)\t\(.title)\t\(.isCrossRepository)"' |
+    fzf --delimiter='\t' --with-nth=1,3 --header='Number	Title'); then
+    return 0
+  fi
+  if [ -z "$_sel" ]; then
+    return 0
+  fi
+
+  _n=$(printf '%s' "$_sel" | cut -f1)
+  _b=$(printf '%s' "$_sel" | cut -f2)
+  _fork=$(printf '%s' "$_sel" | cut -f4)
+  valid_branch "$_b"
+
+  # push.autoSetupRemote would send a plain `git push` to the same-named remote branch, so a
+  # fork PR must not share its branch name with one (typically main/staging/develop)
+  if [ "$_fork" = true ]; then
+    for _r in $(git remote); do
+      if git show-ref -q --verify "refs/remotes/$_r/$_b"; then
+        die "PR is from a fork and its branch '$_b' has the same name as $_r/$_b; pushing from it could update that branch, so wt won't create it"
+      fi
+    done
+  fi
+
+  # Reuse an existing worktree for this branch or at its target path. A fork's branch name means
+  # nothing here ("main", "develop"...): never reuse a same-named worktree or local branch for it,
+  # and never set an upstream (a plain push would land on the same-named branch of the real repo).
+  _d=$(base_dir)/$_b
+  _existing=""
+  if _p=$(path_for_branch "$_b"); then
+    _existing=$_p
+  elif path_is_worktree "$_d"; then
+    _existing=$_d
+  fi
+  if [ -n "$_existing" ]; then
+    if [ "$_fork" = true ]; then
+      die "PR is from a fork and worktree '$_existing' already exists; remove or rename that first"
+    fi
+    update_pr_worktree "$_existing" "$_n" "$_b"
+    cd_to "$_existing"
+    return 0
+  fi
+
+  if [ -e "$_d" ]; then
+    die "$_d already exists and is not a worktree of this repo"
+  fi
+
+  # refs/pull works for forks too, where the branch isn't on the remote
+  _remote=$(default_remote)
+  git fetch "$_remote" "pull/$_n/head" >&2 || return 1
+
+  if git show-ref -q --verify "refs/heads/$_b"; then
+    if [ "$_fork" = true ]; then
+      die "PR is from a fork and local branch '$_b' already exists; delete or rename it first"
+    fi
+    git worktree add "$_d" "$_b" >&2 || return 1
+  else
+    git worktree add -b "$_b" "$_d" FETCH_HEAD >&2 || return 1
+    if [ "$_fork" != true ]; then
+      git branch --set-upstream-to="$_remote/$_b" "$_b" >/dev/null 2>&1
+    fi
+  fi
+  cd_to "$_d"
+}
+
+cmd_clone() {
+  if [ $# -lt 1 ]; then
+    die "usage: wt clone <repo> [dir]"
+  fi
+  need gh
+
+  _repo=$1
+
+  # Target directory: the one given, else named after the repo.
+  # "owner/my-repo.git" -> "my-repo"
+  if [ -n "${2:-}" ]; then
+    _dir=$2
+  else
+    _dir=$(basename "$_repo" .git)
+  fi
+
+  if [ -e "$_dir" ]; then
+    die "$_dir already exists"
+  fi
+
+  mkdir -p "$_dir" || return 1
+  cd "$_dir" || return 1
+  gh repo clone "$_repo" .bare -- --bare >&2 || return 1
+  echo "gitdir: ./.bare" >.git
+  git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+  git fetch -q origin >&2 || return 1
+  git remote set-head origin -a >/dev/null 2>&1
+
+  _def=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)
+  _def=${_def#origin/}
+  if [ -z "$_def" ]; then
+    die "could not determine the default branch"
+  fi
+  git worktree add "$PWD/$_def" "$_def" >&2 || return 1
+  git branch --set-upstream-to="origin/$_def" "$_def" >/dev/null 2>&1
+  cd_to "$PWD/$_def"
+}
+
+# remove one worktree (the branch is left alone); returns 1 instead of exiting so a batch can continue
+remove_one() {
+  _b=$1
+  if ! _p=$(path_for_branch "$_b"); then
+    echo "wt: no worktree for branch '$_b'" >&2
+    return 1
+  fi
+  _base=$(base_dir)
+  git worktree remove "$_p" >&2 || return 1
+
+  # drop now-empty parents of slashed branch names (feature/x -> feature/), never above the project dir
+  case $_p in
+    "$_base"/*)
+      _parent=$(dirname "$_p")
+      while [ "$_parent" != "$_base" ] && rmdir "$_parent" 2>/dev/null; do
+        _parent=$(dirname "$_parent")
+      done
+      ;;
+  esac
+
+  # the shell was inside the removed worktree: land in the project dir instead of a dead cwd
+  case $PWD/ in
+    "$_p"/*) cd_to "$_base" ;;
+  esac
+  return 0
+}
+
+# wt remove [branch...]: with no args, fzf multi-select (Tab marks, Enter confirms)
+cmd_remove() {
+  if [ $# -gt 0 ]; then
+    _list=$(printf '%s\n' "$@")
+  else
+    _list=$(pick_worktree -m)
+    if [ -z "$_list" ]; then
+      return 0
+    fi
+  fi
+
+  _rc=0
+  while IFS= read -r _item; do
+    remove_one "$_item" || _rc=1
+  done <<EOF2
+$_list
+EOF2
+  return $_rc
+}
+
+# candidate lists for shell completion; always quiet
+cmd_complete() {
+  case ${1:-} in
+    subcommands) printf '%s\n' root list switch checkout prs clone remove init ;;
+    shells) printf '%s\n' bash zsh fish ;;
+    worktrees) entries 2>/dev/null | cut -f1 ;;
+    branches)
+      git for-each-ref --format='%(refname)' refs/heads refs/remotes 2>/dev/null |
+        sed -E 's#^refs/(heads|remotes/[^/]+)/##' | grep -v '^HEAD$' | sort -u ;;
+    bases)
+      git for-each-ref --format='%(refname)' refs/remotes refs/heads 2>/dev/null |
+        sed -E 's#^refs/(heads|remotes)/##' | grep -v '/HEAD$' ;;
+  esac
+  return 0
+}
+
+self_path() {
+  case $0 in
+    /*) printf '%s' "$0" ;;
+    *) printf '%s/%s' "$(cd "$(dirname "$0")" && pwd)" "$(basename "$0")" ;;
+  esac
+}
+
+cmd_init() {
+  _self=$(self_path)
+  _q=$(printf '%s' "$_self" | sed "s/'/'\\\\''/g") # single-quote safe
+  case ${1:-} in
+    bash | zsh)
+      cat <<EOF
+wt() {
+  local _wt_f _wt_rc
+  _wt_f=\$(mktemp "\${TMPDIR:-/tmp}/wt.XXXXXX") || return 1
+  WT_CD_FILE=\$_wt_f '$_q' "\$@"
+  _wt_rc=\$?
+  if [ -s "\$_wt_f" ]; then cd -- "\$(cat "\$_wt_f")"; fi
+  rm -f "\$_wt_f"
+  return \$_wt_rc
+}
+EOF
+      if [ "$1" = bash ]; then
+        cat <<EOF
+_wt_complete() {
+  local cur=\${COMP_WORDS[COMP_CWORD]} sub=\${COMP_WORDS[1]} words="" w
+  if [ "\$COMP_CWORD" -eq 1 ]; then
+    words=\$('$_q' __complete subcommands)
+  else
+    case \$sub in
+      checkout | co)
+        if [[ \$cur == -* ]]; then words="--push"
+        elif [ "\$COMP_CWORD" -eq 2 ]; then words=\$('$_q' __complete branches)
+        elif [ "\$COMP_CWORD" -eq 3 ]; then words=\$('$_q' __complete bases)
+        fi ;;
+      switch | sw | remove | rm)
+        [ "\$COMP_CWORD" -eq 2 ] && words=\$('$_q' __complete worktrees) ;;
+      init)
+        [ "\$COMP_CWORD" -eq 2 ] && words=\$('$_q' __complete shells) ;;
+    esac
+  fi
+  # no compgen -W: it expands \$(...) and backticks, and branch names may contain them
+  COMPREPLY=()
+  while IFS= read -r w; do
+    case \$w in "\$cur"*) COMPREPLY[\${#COMPREPLY[@]}]=\$(printf '%q' "\$w") ;; esac
+  done <<< "\$words"
+}
+complete -F _wt_complete wt
+EOF
+      else
+        cat <<EOF
+_wt() {
+  local -a cands
+  if (( CURRENT == 2 )); then
+    cands=(\${(f)"\$('$_q' __complete subcommands)"})
+  else
+    case \$words[2] in
+      checkout | co)
+        if [[ \$words[CURRENT] == -* ]]; then cands=(--push)
+        elif (( CURRENT == 3 )); then cands=(\${(f)"\$('$_q' __complete branches)"})
+        elif (( CURRENT == 4 )); then cands=(\${(f)"\$('$_q' __complete bases)"})
+        fi ;;
+      switch | sw | remove | rm)
+        (( CURRENT == 3 )) && cands=(\${(f)"\$('$_q' __complete worktrees)"}) ;;
+      init)
+        (( CURRENT == 3 )) && cands=(\${(f)"\$('$_q' __complete shells)"}) ;;
+    esac
+  fi
+  (( \${#cands} )) && compadd -- \$cands
+}
+(( \$+functions[compdef] )) && compdef _wt wt
+EOF
+      fi
+      ;;
+    fish)
+      cat <<EOF
+function wt --description 'Git worktree helper'
+    set -l _wt_f (mktemp)
+    env WT_CD_FILE=\$_wt_f '$_q' \$argv
+    set -l _wt_rc \$status
+    if test -s \$_wt_f
+        cd (cat \$_wt_f)
+    end
+    rm -f \$_wt_f
+    return \$_wt_rc
+end
+
+complete -c wt -f
+complete -c wt -n __fish_use_subcommand -a root -d 'Current worktree or project dir'
+complete -c wt -n __fish_use_subcommand -a list -d 'List worktrees'
+complete -c wt -n __fish_use_subcommand -a switch -d 'Jump to a worktree'
+complete -c wt -n __fish_use_subcommand -a checkout -d 'Worktree for a branch'
+complete -c wt -n __fish_use_subcommand -a prs -d 'Worktree for an open PR'
+complete -c wt -n __fish_use_subcommand -a clone -d 'Bare clone with worktree'
+complete -c wt -n __fish_use_subcommand -a remove -d 'Remove a worktree'
+complete -c wt -n __fish_use_subcommand -a init -d 'Print shell integration'
+complete -c wt -n '__fish_seen_subcommand_from checkout co' -l push -d 'Push a new branch to origin'
+complete -c wt -n '__fish_seen_subcommand_from checkout co; and __fish_is_nth_token 2' -a "(command '$_q' __complete branches)"
+complete -c wt -n '__fish_seen_subcommand_from checkout co; and __fish_is_nth_token 3' -a "(command '$_q' __complete bases)"
+complete -c wt -n '__fish_seen_subcommand_from switch sw remove rm; and __fish_is_nth_token 2' -a "(command '$_q' __complete worktrees)"
+complete -c wt -n '__fish_seen_subcommand_from init; and __fish_is_nth_token 2' -a "(command '$_q' __complete shells)"
+EOF
+      ;;
+    *) die "usage: wt init <bash|zsh|fish>" ;;
+  esac
+}
+
+[ $# -ge 1 ] || { usage >&2; exit 1; }
+cmd=$1
+shift
+case $cmd in
+  root) cmd_root "$@" ;;
+  list | ls) cmd_list "$@" ;;
+  switch | sw) cmd_switch "$@" ;;
+  checkout | co) cmd_checkout "$@" ;;
+  prs) cmd_prs "$@" ;;
+  clone) cmd_clone "$@" ;;
+  remove | rm) cmd_remove "$@" ;;
+  init) cmd_init "$@" ;;
+  __complete) cmd_complete "$@" ;;
+  -h | --help | help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac
