@@ -454,14 +454,18 @@ EOF
     fish)
       cat <<EOF
 function wt --description 'Git worktree helper'
-    set -l _wt_f (mktemp)
-    env WT_CD_FILE=\$_wt_f '$_q' \$argv
-    set -l _wt_rc \$status
-    if test -s \$_wt_f
-        cd (cat \$_wt_f)
+    # Commands that move you print the target path on stdout when WT_CD_FILE is unset,
+    # so capture just those (no temp file, no mktemp/env/cat/rm processes); everything
+    # else keeps its stdout. stderr always goes to the terminal.
+    switch "\$argv[1]"
+        case switch sw checkout co prs clone remove rm
+            set -l _wt_dest (command '$_q' \$argv)
+            set -l _wt_rc \$status
+            test (count \$_wt_dest) -gt 0; and cd \$_wt_dest[-1]
+            return \$_wt_rc
+        case '*'
+            command '$_q' \$argv
     end
-    rm -f \$_wt_f
-    return \$_wt_rc
 end
 
 complete -c wt -f
