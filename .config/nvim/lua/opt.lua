@@ -88,7 +88,7 @@ vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold" }, {
 -- ====================================================================
 vim.opt.foldcolumn = "1"    -- show a single fold column on the left
 vim.opt.foldtext = ""       -- show folded line instead of fold summary
-vim.opt.foldlevelstart = 99 -- start with all folds open
+vim.opt.foldlevel = 99      -- start with all folds open (also covers stdin buffers)
 vim.opt.foldmethod = "expr" -- expression-based folding
 vim.opt.fillchars:append({
     foldopen  = "v",        -- icon for open folds
