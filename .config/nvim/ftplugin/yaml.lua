@@ -58,7 +58,14 @@ end
 -- =============================================================================
 -- Winbar: show the current yaml path as the cursor moves
 -- =============================================================================
-vim.wo.winbar = "%{%v:lua._yaml_path()%}"
+-- Setting it evaluates the expression immediately, which parses the whole
+-- buffer; defer so that doesn't block startup on large files.
+local win, win_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+vim.schedule(function()
+    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == win_buf then
+        vim.wo[win].winbar = "%{%v:lua._yaml_path()%}"
+    end
+end)
 
 -- =============================================================================
 -- gO: build all YAML paths on-demand, pick one, and jump to it
