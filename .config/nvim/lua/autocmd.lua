@@ -29,15 +29,22 @@ vim.api.nvim_create_autocmd("FocusGained", {
 -- defaults to 0 for tasks that don't report one (go test, bru), so the
 -- terminal draws an empty bar. Replace it: state 3 "indeterminate" (a pulsing
 -- bar) when there's no percentage, the real percentage otherwise, 0 to remove.
+-- Inside tmux, which drops OSC 9;4, the sequence is wrapped in the same DCS
+-- passthrough as the OSC 11 workaround above (needs allow-passthrough on).
 vim.api.nvim_create_autocmd("Progress", {
     group = vim.api.nvim_create_augroup("nvim.progress", { clear = true }),
     desc = "Terminal progress bar, pulsing when the percentage is unknown",
     callback = function(ev)
         local percent = ev.data.percent or 0
-        local seq = ev.data.status ~= "running" and "0;0"
+        local state = ev.data.status ~= "running" and "0;0"
             or percent > 0 and ("1;" .. percent)
             or "3;0"
-        vim.api.nvim_ui_send("\27]9;4;" .. seq .. "\27\\")
+        local osc = "\27]9;4;" .. state .. "\27\\"
+        if vim.env.TMUX then
+            -- tmux strips one \27 from each doubled pair before forwarding
+            osc = "\27Ptmux;" .. osc:gsub("\27", "\27\27") .. "\27\\"
+        end
+        vim.api.nvim_ui_send(osc)
     end,
 })
 
