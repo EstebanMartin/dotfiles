@@ -4,6 +4,7 @@
 # Per-machine state written by tools
 .config/fish/fish_variables
 .config/gh/hosts.yml
+.config/nvim/nvim-pack-lock.json
 .mycli-history
 .mycli.log
 
