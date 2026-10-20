@@ -44,6 +44,9 @@ end)
 -- =================================================================
 -- Enable LSP features on a per-buffer basis (LspAttach)
 -- =================================================================
+---@type table<string, boolean> filetypes that use LSP folds instead of treesitter
+local lsp_fold_filetypes = {}
+
 vim.api.nvim_create_autocmd('LspAttach', {
     group = vim.api.nvim_create_augroup("enable_lsp_features", {}),
     callback = function(ev)
@@ -66,7 +69,12 @@ vim.api.nvim_create_autocmd('LspAttach', {
         -- every window showing the buffer, not the current one: attach is
         -- async, so focus may have moved on. BufWinEnter covers windows
         -- opened on the buffer later.
-        if client:supports_method("textDocument/foldingRange") then
+        -- Treesitter folds (opt.lua) are the default: they're instant. LSP
+        -- folds arrive late (yamlls: ~3s on large files) and leave no folds
+        -- until then, so the fold icons vanish and come back. Opt in per
+        -- filetype only where the server folds something treesitter can't.
+        if lsp_fold_filetypes[vim.bo[ev.buf].filetype]
+            and client:supports_method("textDocument/foldingRange") then
             local function set_lsp_folds(win)
                 vim.wo[win][0].foldmethod = "expr"
                 vim.wo[win][0].foldexpr = "v:lua.vim.lsp.foldexpr()"
