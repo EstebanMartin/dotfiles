@@ -76,3 +76,37 @@ vim.api.nvim_create_autocmd("TextYankPost", {
         vim.hl.on_yank({ timeout = 300, visual = true })
     end,
 })
+
+-- ===========================================================================
+-- Open file line and column numbers natively
+-- ===========================================================================
+vim.api.nvim_create_autocmd('BufReadCmd', {
+    group = vim.api.nvim_create_augroup('OpenFileLine', { clear = true }),
+    pattern = { '*:[0-9]*', '*#L[0-9]*' },
+    nested = true,
+    callback = function(ev)
+        local path, lnum, col = ev.file:match('^(.-):(%d+):(%d+)$')
+        if not path then
+            path, lnum = ev.file:match('^(.-):(%d+)$')
+        end
+        if not path then
+            path, lnum = ev.file:match('^(.-)#L(%d+)')
+        end
+
+        -- Validate path exists on disk
+        local stat = path and vim.uv.fs_stat(path)
+        if not (stat and stat.type == 'file' and lnum) then
+            return
+        end
+
+        -- Replace the phantom buffer with the real file
+        vim.cmd.edit(vim.fn.fnameescape(path))
+
+        -- Set cursor position (1-based line, 0-based col)
+        vim.api.nvim_win_set_cursor(0, {
+            tonumber(lnum),
+            col and math.max(0, tonumber(col) - 1) or 0,
+        })
+    end,
+})
+
