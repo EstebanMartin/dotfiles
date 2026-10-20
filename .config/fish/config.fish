@@ -65,14 +65,15 @@ end
 if type -q podman; and not type -q docker
     mkdir -p ~/.local/bin
     ln -sf (which podman) ~/.local/bin/docker
-    fish_add_path -g ~/.local/bin # in case it didn't exist yet when added above
 end
 
 if type -q podman-compose; and not type -q docker-compose
     mkdir -p ~/.local/bin
     ln -sf (which podman-compose) ~/.local/bin/docker-compose
-    fish_add_path -g ~/.local/bin
 end
+
+# the dir may have just been created above, after the PATH entry in the Path section
+contains ~/.local/bin $PATH; or fish_add_path -g ~/.local/bin
 
 # =============================================================================
 # Fish LSP
