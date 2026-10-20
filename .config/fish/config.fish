@@ -82,8 +82,8 @@ set -gx fish_lsp_enabled_handlers formatting logging complete hover rename defin
 # =============================================================================
 # Local overrides
 # =============================================================================
-if test -f ~/.config/fish/config.local.fish
-    source ~/.config/fish/config.local.fish
+if test -f ~/.config/fish/work/config.fish
+    source ~/.config/fish/work/config.fish
 end
 
 # Interactive-only config below
