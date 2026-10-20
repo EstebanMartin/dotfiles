@@ -11,12 +11,9 @@
 --
 -- Where state lives. This file is an ftplugin, so it re-executes for *every*
 -- .bru buffer and any module-local would reset each time:
---   vim.g  cross-buffer  the one response buffer/window, the env per collection,
---                        the shared winbar spinner handle
---   vim.b  per-buffer    this buffer's collection root and in-flight count
+--   vim.g  cross-buffer  the one response buffer/window, the env per collection
+--   vim.b  per-buffer    this buffer's collection root
 -- Keep that split; see the notes at each section for why.
-
-local spinner = require("spinner")
 
 -- .bru files that aren't runnable requests
 local NON_REQUEST = { ["collection.bru"] = true, ["folder.bru"] = true }
@@ -141,66 +138,11 @@ local function select_env()
 end
 
 -- =============================================================================
--- In-flight spinner (winbar)
--- =============================================================================
--- Requests are async, so the only feedback would otherwise be the response
--- appearing whenever it appears. The frame animates in the winbar of whichever
--- buffer is running, via lua/spinner.lua's winbar() constructor — this file
--- only owns the running counters and when to start/stop the shared animation.
---
--- Two counters, deliberately in different scopes:
---   vim.b[buf].bru_running  runs in flight for *this* buffer — what the winbar
---                           shows, so only the running buffer spins
---   vim.g.bru_spinning      runs in flight across all buffers — the animation
---                           stops when this reaches 0
-
----@param buf integer buffer handle (0 = current)
----@return integer
-local function running_in(buf)
-    return vim.b[buf].bru_running or 0
-end
-
----@return integer
-local function running_total()
-    return vim.g.bru_spinning or 0
-end
-
-local bru_spin = nil -- the shared winbar spinner handle, created lazily
-
----@param buf integer buffer whose request is starting
-local function spinner_start(buf)
-    vim.b[buf].bru_running = running_in(buf) + 1
-    vim.g.bru_spinning = running_total() + 1
-
-    if bru_spin then return end -- already animating
-    bru_spin = spinner.winbar()
-end
-
----@param buf integer buffer whose request finished
-local function spinner_stop(buf)
-    -- the buffer may have been wiped while the request was in flight
-    if vim.api.nvim_buf_is_valid(buf) then
-        local remaining = math.max(running_in(buf) - 1, 0)
-        vim.b[buf].bru_running = remaining > 0 and remaining or nil
-    end
-
-    vim.g.bru_spinning = math.max(running_total() - 1, 0)
-
-    -- keep animating while any other buffer still has a request in flight
-    if running_total() == 0 and bru_spin then
-        bru_spin.stop()
-        bru_spin = nil
-    end
-
-    pcall(vim.cmd.redrawstatus, { bang = true })
-end
-
--- =============================================================================
 -- BruWinbar: winbar contents for .bru buffers
 -- =============================================================================
 -- Global so the winbar's %{} can reach it. Re-evaluated on every redraw, which
--- is what keeps the env label current after a switch and animates the spinner.
--- Renders e.g.:  "  env: prod   ⠹ running ×2…"
+-- is what keeps the env label current after a switch.
+-- Renders e.g.:  "  env: prod   running ×2…"
 --
 -- Named with the same _<snake_case> convention as _statusline/_json_path
 -- elsewhere in this config, to signal "internal global" consistently.
@@ -212,15 +154,10 @@ function _G._bru_winbar()
 
     local bar = "  env: " .. (current_env(vim.b.bru_root) or NO_ENV)
 
-    local running = running_in(0)
+    -- 'busy' counts this buffer's requests in flight (see run())
+    local running = vim.bo.busy
     if running == 0 then return bar end
-
-    local frame = bru_spin and bru_spin.frame() or ""
-    bar = bar .. "   " .. frame .. " running"
-    if running > 1 then
-        bar = bar .. " ×" .. running -- concurrent runs in this buffer
-    end
-    return bar .. "…"
+    return bar .. "   running" .. (running > 1 and " ×" .. running or "") .. "…"
 end
 
 -- =============================================================================
@@ -681,13 +618,36 @@ local function run()
     local env = current_env(root)
     if env then vim.list_extend(cmd, { "--env", env }) end
 
-    spinner_start(buf)
+    -- Requests are async, so the only feedback would otherwise be the response
+    -- appearing whenever it appears. Two native indicators cover it:
+    --   'busy'            per-buffer counter of runs in flight, shown as
+    --                     "running…" in this buffer's winbar only
+    --   progress message  animates the statusline and drives the terminal's
+    --                     progress bar
+    -- Both span the request and the jq parsing that follows, since both are
+    -- async; nvim_echo updates the message in place via progress.id.
+    ---@param delta integer +1 when the run starts, -1 when it finishes
+    local function add_busy(delta)
+        -- the buffer may have been wiped while the request was in flight
+        if not vim.api.nvim_buf_is_valid(buf) then return end
+        vim.bo[buf].busy = math.max(vim.bo[buf].busy + delta, 0)
+        pcall(vim.cmd.redrawstatus, { bang = true }) -- 'busy' doesn't redraw the winbar itself
+    end
+
+    add_busy(1)
+    local progress = { kind = "progress", source = "bru", title = "bru", status = "running" }
+    progress.id = vim.api.nvim_echo({ { "Running " .. name } }, false, progress)
+
+    ---@param status "success"|"failed"
+    local function finish(status)
+        add_busy(-1)
+        progress.status = status
+        vim.api.nvim_echo({ { name .. (status == "success" and " done" or " failed") } }, false, progress)
+    end
 
     vim.system(cmd, { cwd = root, text = true }, function(res)
         -- the callback runs off the main loop; nothing below is fast-event safe
         vim.schedule(function()
-            spinner_stop(buf)
-
             -- A non-zero exit only means the request or its assertions failed;
             -- the report is still written and is exactly what we want to show.
             -- So gate on the report existing, and use the exit code only for
@@ -698,16 +658,12 @@ local function run()
                     "bru: run produced no report (exit " .. res.code .. ")\n" .. detail,
                     vim.log.levels.ERROR
                 )
+                finish("failed")
                 return
             end
 
-            -- Separate from spinner_start/spinner_stop above: that pair tracks
-            -- the network request via the winbar, which has already stopped by
-            -- this point. This floating spinner covers the jq parsing step
-            -- that follows, which is async for the same reason the request is.
-            local spin = spinner.popup("Parsing response...")
             render(report, env, request_win, function()
-                spin.stop()
+                finish(res.code == 0 and "success" or "failed")
                 vim.fn.delete(report)
             end)
         end)
@@ -735,7 +691,7 @@ vim.opt_local.winbar = WINBAR
 
 -- ftplugin runs on FileType, which doesn't fire for an already-loaded buffer.
 -- Without this, displaying a loaded .bru file in a window that never hosted one
--- (`:b ping.bru`, a buffer picker) leaves it with no winbar — and so no spinner.
+-- (`:b ping.bru`, a buffer picker) leaves it with no winbar — and so no env label.
 vim.api.nvim_create_autocmd("BufWinEnter", {
     buffer   = 0,
     desc     = "Bruno: winbar follows this buffer into any window",

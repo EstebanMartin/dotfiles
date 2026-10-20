@@ -21,6 +21,26 @@ vim.api.nvim_create_autocmd("FocusGained", {
     end,
 })
 
+-- =============================================================================
+-- Workaround: terminal progress bar for tasks with no known percentage
+-- =============================================================================
+-- Neovim's default handler (group nvim.progress, registered before this file
+-- loads) always sends OSC 9;4 state 1 "normal" with the percentage, which
+-- defaults to 0 for tasks that don't report one (go test, bru), so the
+-- terminal draws an empty bar. Replace it: state 3 "indeterminate" (a pulsing
+-- bar) when there's no percentage, the real percentage otherwise, 0 to remove.
+vim.api.nvim_create_autocmd("Progress", {
+    group = vim.api.nvim_create_augroup("nvim.progress", { clear = true }),
+    desc = "Terminal progress bar, pulsing when the percentage is unknown",
+    callback = function(ev)
+        local percent = ev.data.percent or 0
+        local seq = ev.data.status ~= "running" and "0;0"
+            or percent > 0 and ("1;" .. percent)
+            or "3;0"
+        vim.api.nvim_ui_send("\27]9;4;" .. seq .. "\27\\")
+    end,
+})
+
 -- =================================================================
 -- Startup Time Notification
 -- =================================================================

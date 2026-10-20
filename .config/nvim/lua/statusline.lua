@@ -1,6 +1,6 @@
 -- =================================================================
--- Statusline: shows the current mode, filename, diagnostics,
--- filetype, and cursor position
+-- Statusline: shows the current mode, filename, running tasks,
+-- diagnostics, filetype, and cursor position
 -- =================================================================
 
 -- build a custom highlight for the mode label by reusing colors
@@ -29,6 +29,11 @@ local modes = {
     ["\19"] = "S-BLOCK",
 }
 
+-- braille-dot animation for running tasks, advanced by the timer below
+local frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+local frame = 1
+local timer = assert(vim.uv.new_timer())
+
 -- this function builds the statusline text; it's called every time
 -- the statusline needs to redraw (see 'statusline' option at the bottom)
 ---@return string
@@ -37,28 +42,36 @@ function _G._statusline()
     -- whatever Neovim reports if it's not in our table
     local mode = modes[vim.fn.mode()] or vim.fn.mode():upper()
 
-    -- build the diagnostics section (error/warning/info/hint counts)
-    local diag = ""
-    local counts = vim.diagnostic.count(0) or {}
-    local labels = { " ", " ", " ", " " } -- one icon per severity
-    local hls = { "DiagnosticError", "DiagnosticWarn", "DiagnosticInfo", "DiagnosticHint" }
-    for i = 1, 4 do
-        if counts[i] and counts[i] > 0 then
-            diag = diag .. "%#" .. hls[i] .. "#" .. labels[i] .. counts[i] .. "%* "
-        end
-    end
+    -- animated frame while any progress message is running (go test, bru, vim.pack, ...)
+    local busy = vim.ui.progress_status() ~= "" and frames[frame] .. " " or ""
+
+    -- error/warning/info/hint counts, e.g. "E:1 W:2", using the sign text
+    -- from vim.diagnostic.config(); Neovim redraws the statusline itself
+    -- when diagnostics change
+    local diag = vim.diagnostic.status()
+    if diag ~= "" then diag = diag .. " " end
 
     -- %f = filename, %= = split point (left vs right side),
     -- %l:%c = line:column of the cursor
-    return "%#StlMode# " .. mode .. " %* %f%=" .. diag .. vim.bo.filetype .. " %l:%c"
+    return "%#StlMode# " .. mode .. " %* %f%=" .. busy .. diag .. vim.bo.filetype .. " %l:%c"
 end
 
--- diagnostics can change without moving the cursor (e.g. LSP finishes
--- linting in the background), so redraw the statusline whenever that happens
-vim.api.nvim_create_autocmd("DiagnosticChanged", {
-    callback = function()
-        vim.cmd("redrawstatus!")
-    end,
+-- Progress fires when a task starts or finishes: animate only while
+-- something is running. Scheduled so vim.ui's own Progress handler has
+-- updated its state first. redrawstatus is refused while the cmdline is
+-- active, hence the pcalls.
+vim.api.nvim_create_autocmd("Progress", {
+    callback = vim.schedule_wrap(function()
+        if vim.ui.progress_status() == "" then
+            timer:stop()
+            pcall(vim.cmd.redrawstatus, { bang = true }) -- clear the last frame
+        elseif not timer:is_active() then
+            timer:start(0, 80, vim.schedule_wrap(function()
+                frame = frame % #frames + 1
+                pcall(vim.cmd.redrawstatus, { bang = true })
+            end))
+        end
+    end),
 })
 
 -- tell Neovim to use our function to build the statusline

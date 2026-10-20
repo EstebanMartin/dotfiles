@@ -110,7 +110,11 @@ vim.keymap.set("n", "<localleader>c", function()
 
     -- go test will write its coverage results into this temp file
     local coverage_path = vim.fn.tempname() .. ".cov"
-    local spin = require("spinner").popup("Running go test...")
+
+    -- native progress message: ◐ in the statusline while it runs, updated
+    -- in place via progress.id when it finishes
+    local progress = { kind = "progress", source = "go", title = "go test", status = "running" }
+    progress.id = vim.api.nvim_echo({ { "Running with coverage..." } }, false, progress)
 
     -- run "go test" in the background so the editor doesn't freeze
     vim.system(
@@ -120,7 +124,8 @@ vim.keymap.set("n", "<localleader>c", function()
             -- this callback runs in the background, so we schedule the
             -- rest to run safely on Neovim's main loop
             vim.schedule(function()
-                spin.stop()
+                progress.status = result.code == 0 and "success" or "failed"
+                vim.api.nvim_echo({ { "Finished" } }, false, progress)
 
                 -- go test itself failed (compile error, failing test, etc.)
                 if result.code ~= 0 then
@@ -458,8 +463,10 @@ end, { buffer = true, desc = "Run" })
 -- =================================================================
 vim.keymap.set("n", "<localleader>t",
     function()
-        -- show a spinner while the tests run in the background
-        local spin = require("spinner").popup("Running go test...")
+        -- native progress message: ◐ in the statusline while the tests
+        -- run, updated in place via progress.id with the result
+        local progress = { kind = "progress", source = "go", title = "go test", status = "running" }
+        progress.id = vim.api.nvim_echo({ { "Running..." } }, false, progress)
 
         -- run "go test" for the package containing the current file,
         -- without blocking the editor; cwd is the file's own directory,
@@ -471,13 +478,11 @@ vim.keymap.set("n", "<localleader>t",
                 -- this callback runs in the background, so we schedule
                 -- the rest to run safely on Neovim's main loop
                 vim.schedule(function()
-                    spin.stop()
-
                     -- exit code 0 means every test passed
-                    if result.code == 0 then
-                        vim.notify("All tests passed", vim.log.levels.INFO)
-                        return
-                    end
+                    local passed = result.code == 0
+                    progress.status = passed and "success" or "failed"
+                    vim.api.nvim_echo({ { passed and "All tests passed" or "Tests failed" } }, false, progress)
+                    if passed then return end
 
                     -- something failed: show the test output so we can
                     -- see what went wrong (go test mixes stdout/stderr)

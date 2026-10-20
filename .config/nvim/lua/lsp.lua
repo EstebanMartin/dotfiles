@@ -1,11 +1,34 @@
 -- =================================================================
 -- Show LSP loading progress
 -- =================================================================
+-- as native progress messages, like go test and bru: one line per server
+-- task, updated in place; animates the statusline and drives the terminal's
+-- progress bar
+local titles = {} -- task title from its 'begin'; 'report'/'end' may omit it
+
 vim.api.nvim_create_autocmd('LspProgress', {
-    callback = function()
-        local msg = vim.lsp.status()
-        if msg == '' then return end
-        vim.api.nvim_echo({ { msg, 'Comment' } }, false, {})
+    callback = function(ev)
+        local value = ev.data.params.value
+        if type(value) ~= 'table' or not value.kind then return end -- not work-done progress
+
+        local id = ('lsp.%d.%s'):format(ev.data.client_id, ev.data.params.token)
+        titles[id] = value.title or titles[id]
+
+        -- e.g. "Loading workspace 71/213"; Neovim prefixes the percentage
+        -- (from `percent` below) itself, so it isn't repeated in the text
+        local text = titles[id] or ''
+        if value.message then text = text .. ' ' .. value.message end
+        if value.kind == 'end' then titles[id] = nil end
+
+        local client = vim.lsp.get_client_by_id(ev.data.client_id)
+        vim.api.nvim_echo({ { vim.trim(text), 'Comment' } }, false, {
+            id = id,
+            kind = 'progress',
+            source = 'vim.lsp',
+            title = client and client.name or 'lsp',
+            status = value.kind == 'end' and 'success' or 'running',
+            percent = value.percentage,
+        })
     end,
 })
 
