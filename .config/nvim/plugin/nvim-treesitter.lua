@@ -4,7 +4,17 @@
 vim.api.nvim_create_autocmd("FileType", {
     desc = "Start treesitter highlighting",
     callback = function(args)
-        pcall(vim.treesitter.start, args.buf)
+        if not pcall(vim.treesitter.start, args.buf) then return end
+        -- the fold expr may have run before the parser existed (e.g. big stdin
+        -- buffers) and nothing invalidates it; re-setting the method recomputes
+        vim.schedule(function()
+            if not vim.api.nvim_buf_is_valid(args.buf) then return end
+            for _, win in ipairs(vim.fn.win_findbuf(args.buf)) do
+                if vim.wo[win].foldmethod == "expr" then
+                    vim.wo[win].foldmethod = "expr"
+                end
+            end
+        end)
     end,
 })
 
