@@ -50,6 +50,41 @@ vim.keymap.set("x", "gf", function()
 end, { desc = "Jump to file:line (join wrapped lines)" })
 
 -- ====================================================================
+-- gF (terminal): open file:line:col under cursor in the previous window
+-- ====================================================================
+-- native gF replaces the terminal itself; this keeps the terminal visible
+-- and opens e.g. "lib/foo.go:209:64: cannot use..." where you came from
+vim.api.nvim_create_autocmd("TermOpen", {
+    desc = "Terminal gF opens file:line in previous window",
+    callback = function(ev)
+        vim.keymap.set("n", "gF", function()
+            -- <cWORD> keeps the ":209:64:" suffix that <cfile> drops
+            local word = vim.fn.expand("<cWORD>")
+            local filename, line_num, col = word:match("^([^:]+):(%d+):?(%d*)")
+            filename = filename or vim.fn.expand("<cfile>")
+
+            if vim.fn.filereadable(filename) == 0 then
+                vim.notify("Error: '" .. filename .. "' is not a readable file.", vim.log.levels.ERROR)
+                return
+            end
+
+            -- winnr("#") is 0 when there's no previous window; split instead
+            if vim.fn.winnr("#") ~= 0 and vim.fn.winnr("#") ~= vim.fn.winnr() then
+                vim.cmd.wincmd("p")
+            else
+                vim.cmd.split()
+            end
+
+            vim.cmd.edit(vim.fn.fnameescape(filename))
+            if line_num then
+                local c = tonumber(col) or 1
+                vim.api.nvim_win_set_cursor(0, { tonumber(line_num), math.max(c - 1, 0) })
+            end
+        end, { buffer = ev.buf, desc = "Open file:line:col in previous window" })
+    end,
+})
+
+-- ====================================================================
 -- <C-w>D: diagnostics to quickfix, cursor at nearest
 -- ====================================================================
 -- sends all diagnostics (errors/warnings) to the quickfix list, then
