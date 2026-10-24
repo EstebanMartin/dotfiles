@@ -119,17 +119,18 @@ func allWindows() -> [Window] {
 // MARK: - Layouts
 // Layouts apply to the screen of the frontmost app's focused window
 let windows = allWindows()
-guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-      let focused = attribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute),
-      CFGetTypeID(focused) == AXUIElementGetTypeID() else {
-    fail("Could not find the focused window.")
-}
-let focusedAX = focused as! AXUIElement
-let focusedID = windowID(focusedAX)
-// not in the list when it can't be matched by ID or is under 100px: still move it, with its frame from AX
+guard let frontApp = NSWorkspace.shared.frontmostApplication else { fail("Could not find the frontmost app.") }
+let pid = frontApp.processIdentifier
+// AX sometimes has no focused window (app busy, Chromium still building its AX tree): fall back to CGWindowList below
+let focusedAX = attribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute)
+    .flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+let focusedID = focusedAX.flatMap(windowID)
 guard let current = windows.first(where: { $0.id == focusedID })
-        ?? axFrame(focusedAX).map({ Window(id: focusedID ?? 0, pid: pid, ax: focusedAX, frame: $0) }) else {
-    fail("Could not find the focused window.")
+        // not in the list when it can't be matched by ID or is under 100px: still move it, with its frame from AX
+        ?? focusedAX.flatMap({ ax in axFrame(ax).map { Window(id: focusedID ?? 0, pid: pid, ax: ax, frame: $0) } })
+        // the app's topmost window is the focused one
+        ?? windows.first(where: { $0.pid == pid }) else {
+    fail("Could not find the focused window of \(frontApp.localizedName ?? "pid \(pid)").")
 }
 let screen = screenFrame(containing: current.frame)
 let others = windows.filter { $0.id != current.id && screenFrame(containing: $0.frame) == screen }
