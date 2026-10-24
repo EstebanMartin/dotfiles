@@ -1,0 +1,31 @@
+# Amethyst config: overrides the in-app preferences; restart Amethyst to apply.
+# Only non-default values live here: setting a key to its default can conflict
+# (https://github.com/ianyh/Amethyst/issues/1419). Defaults and every key:
+# https://github.com/ianyh/Amethyst/blob/development/docs/configuration-files.md
+
+layouts:
+  - fullscreen
+  - two-pane
+
+# ctrl + cmd, for the shortcuts below
+mod3:
+  - control
+  - command
+
+swap-main:
+  mod: mod3
+  key: enter
+
+cycle-layout-backward:
+  mod: mod3
+  key: w
+
+# Drag a window onto another to swap them; resizing with the mouse updates the layout
+mouse-swaps-windows: true
+mouse-resizes-windows: true
+
+# Stay on the current space after throwing a window to another one
+follow-space-thrown-windows: false
+
+# Start from the configured layouts on launch instead of the last session's
+restore-layouts-on-launch: false
