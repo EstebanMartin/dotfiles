@@ -1,0 +1,6 @@
+{
+  "name": "review-pane",
+  "version": "0.1.0",
+  "description": "A pane that shows the files Claude changed this session, their diffs, and takes review comments Claude reads",
+  "types": "./types/index.d.ts"
+}

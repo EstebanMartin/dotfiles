@@ -1,0 +1,318 @@
+<title>Change Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: the terminal review pane, on the web: a header strip, the file list, rounded change cards of tinted diff rows, an action bar */
+:root {
+  --bg: #fbfaf8; --panel: #ffffff; --fg: #24211e; --muted: #7b756e; --rule: #e4e0da;
+  --accent: #c15f3c;            /* the pane's "claude" accent */
+  --pick: #3b6fd6;              /* the pane's "suggestion" blue: picked lines */
+  --warn: #a8761a; --ok: #2f7d4f;
+  --add: #2f7d4f; --add-bg: #e7f5ec; --del: #b33a2e; --del-bg: #fbeae7; --hunk-bg: #f2f0ec; --pick-bg: #e6eefc;
+  --k: #8a3fb8; --s: #2f7d4f; --c: #8d877f; --f: #2c63c4; --n: #b3591b;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161514; --panel: #1d1c1a; --fg: #e8e4dd; --muted: #948d84; --rule: #34312d;
+  --accent: #e08a65; --pick: #7aa5f5; --warn: #e3b55a; --ok: #79c99a;
+  --add: #8fd6a8; --add-bg: #17301f; --del: #f19b90; --del-bg: #3a1d19; --hunk-bg: #24221f; --pick-bg: #1f2b45;
+  --k: #c99af0; --s: #8fd6a8; --c: #8a847b; --f: #8db4f7; --n: #f0a56e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161514; --panel: #1d1c1a; --fg: #e8e4dd; --muted: #948d84; --rule: #34312d;
+  --accent: #e08a65; --pick: #7aa5f5; --warn: #e3b55a; --ok: #79c99a;
+  --add: #8fd6a8; --add-bg: #17301f; --del: #f19b90; --del-bg: #3a1d19; --hunk-bg: #24221f; --pick-bg: #1f2b45;
+  --k: #c99af0; --s: #8fd6a8; --c: #8a847b; --f: #8db4f7; --n: #f0a56e; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 18px; }
+button { font: inherit; color: inherit; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; }
+.dim { color: var(--muted); }
+.plus { color: var(--add); } .minus { color: var(--del); }
+
+header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+header.top h1 { margin: 0; font-size: 15px; font-weight: 700; color: var(--accent); }
+.totals { font-variant-numeric: tabular-nums; }
+.pending { color: var(--warn); }
+.note { margin: 0; color: var(--muted); max-width: 72ch; }
+
+.files { display: flex; flex-direction: column; }
+.file { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; gap: 0 10px; padding: 1px 0; border-radius: 3px; }
+.file:hover .fname { text-decoration: underline; }
+.file .mark { color: var(--muted); width: 1.2em; }
+.file[aria-current="true"] .mark { color: var(--accent); }
+.file[aria-current="true"] .fname { font-weight: 700; }
+hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+.hint { color: var(--muted); }
+
+.change { border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.change-head { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--rule); }
+.change-head b { font-weight: 700; }
+.rows { overflow-x: auto; }
+.row { display: grid; grid-template-columns: 1.1em auto 1.6em minmax(0, 1fr); align-items: start; min-width: max-content; }
+.row.add { background: var(--add-bg); } .row.del { background: var(--del-bg); }
+.row.picked { background: var(--pick-bg); }
+.bar { color: var(--pick); text-align: center; user-select: none; }
+.nums { all: unset; cursor: pointer; color: var(--muted); padding: 0 8px 0 2px; white-space: pre; user-select: none; font-variant-numeric: tabular-nums; border-radius: 3px; }
+.nums:hover { color: var(--pick); background: color-mix(in srgb, var(--pick) 12%, transparent); }
+.row.picked .nums { color: var(--panel); background: var(--pick); }
+.sign { user-select: none; text-align: center; }
+.row.add .sign { color: var(--add); } .row.del .sign { color: var(--del); } .row.ctx .sign { color: var(--muted); }
+.code { white-space: pre; padding-right: 16px; }
+.hunk { display: flex; justify-content: space-between; gap: 12px; background: var(--hunk-bg); padding: 2px 12px 2px 1.1em; color: var(--muted); min-width: max-content; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.tab { all: unset; cursor: pointer; color: var(--muted); padding: 1px 0; }
+.tab::before { content: "  "; white-space: pre; }
+.tab[aria-pressed="true"] { color: var(--fg); font-weight: 700; }
+.tab[aria-pressed="true"]::before { content: "▸ "; color: var(--accent); }
+.tab:hover { text-decoration: underline; }
+.tab:focus-visible { outline: 2px solid var(--pick); }
+.hunk button { all: unset; cursor: pointer; color: var(--pick); }
+.hunk button:hover { text-decoration: underline; }
+
+.composer { margin: 6px 12px 8px; border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+.composer textarea { width: 100%; min-height: 4.2em; resize: vertical; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { cursor: pointer; border: 1px solid var(--rule); background: var(--panel); border-radius: 6px; padding: 3px 10px; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.btn:disabled { opacity: .5; cursor: default; }
+.status { color: var(--muted); }
+
+.hljs-keyword, .hljs-built_in { color: var(--k); } .hljs-string { color: var(--s); }
+.hljs-comment { color: var(--c); font-style: italic; } .hljs-title, .hljs-function { color: var(--f); }
+.hljs-number, .hljs-literal { color: var(--n); }
+
+footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Review</h1>
+    <span class="totals" id="totals"><span class="dim">loading…</span></span>
+  </header>
+  <p class="note" id="note"></p>
+
+  <nav class="files" id="files" aria-label="Changed files"></nav>
+  <hr class="rule">
+
+  <p class="hint">Select a line number to comment, a second one (or shift-click) for a range, or + comment on hunk.</p>
+  <main id="changes" style="display:flex;flex-direction:column;gap:14px"></main>
+
+  <hr class="rule">
+  <footer>
+    <span class="dim">Comments show as pins on the lines. Send to Claude and the reply lands in the same thread.</span>
+    <span class="dim" id="cstate"></span>
+  </footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+let data = { files: [] }
+let fileIndex = 0
+let editView = null      // index of the one edit shown, or null for all changes as one diff
+let pick = null          // { change, from, to } row indexes, inclusive
+let comments = null
+let canSend = 'off'
+const posted = new Set() // "change:row" keys that got a comment in this visit
+
+const $ = s => document.querySelector(s)
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n }
+
+function rowsOf(diff) {
+  const rows = []; let o = 0, n = 0, h = -1
+  for (const line of diff.split('\n')) {
+    const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (m) { h++; o = Math.max(1, +m[1]); n = Math.max(1, +m[2]); rows.push({ kind: 'hunk', text: line, hunk: h }) }
+    else if (line.startsWith('+')) rows.push({ kind: 'add', text: line.slice(1), hunk: h, newN: n++ })
+    else if (line.startsWith('-')) rows.push({ kind: 'del', text: line.slice(1), hunk: h, oldN: o++ })
+    else if (!line.startsWith('\\')) rows.push({ kind: 'ctx', text: line.slice(1), hunk: h, oldN: o++, newN: n++ })
+  }
+  return rows
+}
+const tally = diff => rowsOf(diff).reduce((t, r) => (r.kind === 'add' ? t.add++ : r.kind === 'del' ? t.del++ : 0, t), { add: 0, del: 0 })
+const sum = list => list.reduce((a, b) => ({ add: a.add + b.add, del: a.del + b.del }), { add: 0, del: 0 })
+const range = (a, b) => (a === b ? `L${a}` : `L${a}-${b}`)
+
+function where(rows, p) {
+  const span = rows.slice(p.from, p.to + 1).filter(r => r.kind !== 'hunk')
+  const news = span.flatMap(r => (r.newN ? [r.newN] : []))
+  const olds = span.flatMap(r => (r.oldN ? [r.oldN] : []))
+  const nums = news.length ? news : olds
+  return nums.length ? `${news.length ? '' : 'old '}${range(Math.min(...nums), Math.max(...nums))}` : ''
+}
+
+function counts(t) {
+  const s = el('span')
+  s.append(el('span', 'plus', `+${t.add}`), ' ', el('span', 'minus', `−${t.del}`))
+  return s
+}
+
+function highlight(code, lang) {
+  try { if (window.hljs && lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value } catch {}
+  return null
+}
+
+function say(text) {
+  const t = $('#toast'); t.textContent = text; t.hidden = false
+  clearTimeout(say.timer); say.timer = setTimeout(() => { t.hidden = true }, 2200)
+}
+
+function render() {
+  const files = data.files
+  const all = sum(files.flatMap(f => f.changes.map(c => tally(c.diff))))
+  const totals = $('#totals'); totals.replaceChildren(
+    el('span', 'dim', `${files.length} file${files.length === 1 ? '' : 's'} · `), counts(all),
+    el('span', 'dim', ` · ${files.reduce((n, f) => n + f.changes.length, 0)} changes`))
+  $('#note').textContent = data.note || ''
+
+  const nav = $('#files'); nav.replaceChildren()
+  files.forEach((f, i) => {
+    const b = el('button', 'file'); b.type = 'button'
+    b.setAttribute('aria-current', String(i === fileIndex))
+    const parts = f.path.split('/')
+    b.append(el('span', 'mark', i === fileIndex ? '▸' : ''), el('span', 'fname', parts.pop()),
+      el('span', 'dim', parts.slice(-2).join('/')), counts(sum(f.changes.map(c => tally(c.diff)))))
+    b.addEventListener('click', () => { fileIndex = i; editView = null; pick = null; render() })
+    nav.append(b)
+  })
+
+  const file = files[fileIndex]
+  const main = $('#changes'); main.replaceChildren()
+  if (!file) { main.append(el('p', 'dim', 'Nothing to review yet.')); return }
+
+  // All changes as one net diff when the pane could tell it, else each edit; or the one edit picked
+  const edits = file.changes
+  const shown = editView !== null && edits[editView] ? [{ ...edits[editView], label: `edit ${editView + 1} of ${edits.length}` }]
+    : typeof file.net === 'string' ? [{ verb: 'All changes', diff: file.net, label: `${edits.length} edit${edits.length === 1 ? '' : 's'} as one diff` }]
+    : edits.map((c, i) => ({ ...c, label: `edit ${i + 1} of ${edits.length}` }))
+
+  if (edits.length > 1) {
+    const tabs = el('div', 'tabs')
+    ;[null, ...edits.map((_, i) => i)].forEach(i => {
+      const b = el('button', 'tab', i === null ? 'All changes' : `Edit ${i + 1}`); b.type = 'button'
+      if (i !== null) b.append(el('span', 'dim', ` ${edits[i].verb === 'Created' ? 'created' : 'edited'}`))
+      b.setAttribute('aria-pressed', String(i === editView))
+      b.addEventListener('click', () => { editView = i; pick = null; render() })
+      tabs.append(b)
+    })
+    main.append(tabs)
+  }
+
+  const width = Math.max(2, ...shown.flatMap(c => rowsOf(c.diff).map(r => String(Math.max(r.oldN || 0, r.newN || 0)).length)))
+  const pad = n => String(n ?? '').padStart(width)
+
+  shown.forEach((change, ci) => {
+    const rows = rowsOf(change.diff)
+    const card = el('section', 'change'); card.id = `change-${ci + 1}`
+    const head = el('div', 'change-head')
+    const title = el('span'); title.append(el('b', '', change.verb || change.tool), el('span', 'dim', ` · ${change.label}`))
+    head.append(title, counts(tally(change.diff)))
+    const body = el('div', 'rows')
+    card.append(head, body)
+
+    rows.forEach((row, ri) => {
+      if (row.kind === 'hunk') {
+        const h = el('div', 'hunk'); h.append(el('span', '', row.text))
+        const b = el('button', '', '+ comment on hunk'); b.type = 'button'
+        const last = rows.findLastIndex(r => r.hunk === row.hunk)
+        b.addEventListener('click', () => choose({ change: ci, from: ri + 1, to: last }))
+        h.append(b); body.append(h)
+      } else {
+        const isPicked = pick && pick.change === ci && ri >= pick.from && ri <= pick.to
+        const r = el('div', `row ${row.kind}${isPicked ? ' picked' : ''}`)
+        r.dataset.commentTarget = ''
+        r.dataset.row = `${ci}:${ri}`
+        const bar = el('span', 'bar', isPicked ? '▌' : posted.has(`${ci}:${ri}`) ? '●' : '')
+        const nums = el('button', 'nums', `${pad(row.oldN)} ${pad(row.newN)}`); nums.type = 'button'
+        nums.setAttribute('aria-label', `Comment on line ${row.newN ?? row.oldN}`)
+        nums.addEventListener('click', ev => {
+          const same = pick && pick.change === ci
+          if (same && (ev.shiftKey || (pick.from === pick.to && pick.from !== ri))) {
+            choose({ change: ci, from: Math.min(pick.from, ri), to: Math.max(pick.to, ri) })
+          } else choose({ change: ci, from: ri, to: ri })
+        })
+        const code = el('span', 'code')
+        const html = highlight(row.text, file.language)
+        if (html !== null) code.innerHTML = html || ' '; else code.textContent = row.text || ' '
+        r.append(bar, nums, el('span', 'sign', row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ''), code)
+        body.append(r)
+      }
+      if (pick && pick.change === ci && ri === pick.to) body.append(composer(file, rows, ci))
+    })
+    if (rows.length === 0) body.append(el('p', 'dim', 'No net change: the file is back to how it was.'))
+    main.append(card)
+  })
+}
+
+function composer(file, rows, ci) {
+  const p = pick
+  const box = el('div', 'composer')
+  const t = el('div'); t.append(el('b', '', 'New comment'), el('span', 'dim', ` on ${where(rows, p)}`))
+  if (p.from === p.to) t.append(el('span', 'dim', ' · select another line for a range'))
+  const area = el('textarea'); area.id = `draft-${ci}`; area.placeholder = 'Leave a comment'; area.setAttribute('aria-label', 'Comment')
+  const actions = el('div', 'actions')
+  const send = el('button', 'btn primary', 'Send to Claude'); send.type = 'button'
+  const add = el('button', 'btn', 'Add comment'); add.type = 'button'
+  const cancel = el('button', 'btn', 'Cancel'); cancel.type = 'button'
+  const status = el('span', 'status')
+  if (!comments) { send.disabled = add.disabled = true; status.textContent = 'Comments are not available in this view.' }
+  else if (canSend !== 'available') {
+    send.disabled = true
+    status.textContent = { writers_only: 'Only editors can send to Claude.', no_session: 'No Claude session is watching this page right now.', off: 'Sending to Claude is off here.' }[canSend] || ''
+  }
+  actions.append(send, add, cancel, status)
+  box.append(t, area, actions)
+
+  const post = async toClaude => {
+    const text = area.value.trim()
+    if (!text) { area.focus(); return }
+    const firstRow = document.querySelector(`[data-row="${ci}:${rows.findIndex((r, i) => i >= p.from && r.kind !== 'hunk')}"]`)
+    const label = `${file.path.split('/').pop()} ${where(rows, p)}`
+    send.disabled = add.disabled = true; status.textContent = 'Posting…'
+    try {
+      const anchor = await comments.anchorFor(firstRow)
+      const body = `${label}: ${text}`
+      if (toClaude) await comments.sendToClaude({ anchor, text: body })
+      else await comments.create({ anchor, text: body })
+      for (let i = p.from; i <= p.to; i++) posted.add(`${ci}:${i}`)
+      pick = null; render()
+      say(toClaude ? 'Sent to Claude' : 'Comment added')
+    } catch (err) {
+      send.disabled = canSend !== 'available'; add.disabled = false
+      const code = err && err.code
+      status.textContent = code === 'consent_required' ? 'Allow comments for this page, then try again.'
+        : code === 'rate_limited' ? 'Too many comments at once. Wait a moment and try again.'
+        : code === 'claude_unavailable' ? 'Claude can’t receive this right now. Use Add comment instead.'
+        : 'The comment was not posted. Try again.'
+    }
+  }
+  send.addEventListener('click', () => post(true))
+  add.addEventListener('click', () => post(false))
+  cancel.addEventListener('click', () => { pick = null; render() })
+  area.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) post(canSend === 'available') })
+  queueMicrotask(() => area.focus())
+  return box
+}
+
+async function choose(next) {
+  pick = next; render()
+  if (comments) { try { canSend = await comments.canSendToClaude() } catch { canSend = 'off' } ; render() }
+}
+
+async function boot() {
+  try { data = await (await fetch('changes.json')).json() } catch { data = { files: [] } }
+  render()
+  comments = await (window.claude?.use?.('comments') ?? Promise.resolve(null))
+  if (comments) { try { canSend = await comments.canSendToClaude() } catch { canSend = 'off' } }
+  $('#cstate').textContent = comments ? '' : 'Comments are not available in this view.'
+}
+boot()
+</script>

@@ -7,6 +7,8 @@
 .config/nvim/nvim-pack-lock.json
 .mycli-history
 .mycli.log
+.claude.json
+.claude.json.backup*
 
 # Machine/work-specific overrides and private files, never committed
 *.local
