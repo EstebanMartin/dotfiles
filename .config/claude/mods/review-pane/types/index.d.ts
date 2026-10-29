@@ -66,6 +66,10 @@ declare module 'claude-code' {
       viewed: Record<string, string>
       /** Whether long diffs are drawn whole instead of cut at the row limit */
       fullDiff: boolean
+      /** Whether long code lines wrap instead of being cut at the pane's edge */
+      wrapLines: boolean
+      /** Whether the field for a note on the whole file is open */
+      noteOpen: boolean
       /** The comment whose discussion the next prompt answers, while its reply box is open */
       replyTo: string | null
     }

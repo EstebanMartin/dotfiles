@@ -46,6 +46,23 @@ function fuzzyScore(query: string, path: string): number | null {
 }
 const viewed = atom({ plugin: 'review-pane', key: 'viewed' } as const, {})
 const fullDiff = atom({ plugin: 'review-pane', key: 'fullDiff' } as const, false)
+const wrapLines = atom({ plugin: 'review-pane', key: 'wrapLines' } as const, false)
+const noteOpen = atom({ plugin: 'review-pane', key: 'noteOpen' } as const, false)
+
+/** A line that opens a function, type or section: what a hunk separator names, as git's hunk headers do */
+const SECTION =
+  /^\s*((export\s+)?(default\s+)?(async\s+)?function\b|func\b|def\b|class\b|interface\b|type\s+\w+|(local\s+)?function\b|[\w.:]+\s*=\s*(async\s+)?(function\b|\()|(pub\s+)?fn\b|impl\b|\[[^\]]+\]\s*$|#{1,6}\s|(#|--|\/\/)\s*(---|===|─)\s*\S)/
+/** Section markers around a comment heading, `# --- Tools ---` read as `Tools` */
+const MARKERS = /^(#|--|\/\/)\s*(---|===|─)+\s*|\s*(---|===|─)+\s*$/g
+
+/** The nearest function or section opening above a line (1-based), trimmed for a separator; '' when there is none */
+function contextOf(lines: readonly string[], line: number): string {
+  for (let i = Math.min(line - 2, lines.length - 1); i >= 0; i--) {
+    const text = lines[i]!
+    if (SECTION.test(text)) return text.trim().replace(MARKERS, '').replace(/\s*[{(]\s*$/, '').slice(0, 60)
+  }
+  return ''
+}
 
 /** Diff rows drawn per change before the rest is cut (t draws them all): each row is a highlighted button */
 const MAX_ROWS = 300
@@ -1080,6 +1097,10 @@ export const register: Register = on => {
     const outdated = shown.some(c => c.id.startsWith('net:')) ? notes.filter(n => n.file === file && n.rows && !anchors.has(n.id)) : []
     const viewedCount = files.filter(f => isViewed(marks, list, f)).length
     const fileNotes = notes.filter(c => c.file === file && !c.changeId)
+    // The open file as it is now: hunk separators name the section each hunk sits in
+    const fileLines = file ? splitLines((await readOrNull($, file)) ?? '') : []
+    const isWrapped = await read($, wrapLines)
+    const isNoteOpen = await read($, noteOpen)
     const sel = await read($, selection)
     const from = await read($, visual)
     const isKeysOpen = await read($, showKeys)
@@ -1168,7 +1189,8 @@ export const register: Register = on => {
     const dirs = [...new Set(files.map(dirOf))]
     const nameOf = (path: string) => path.split('/').pop() ?? path
     const nameWidth = Math.max(...files.map(p => nameOf(p).length))
-    const pendingElsewhere = notes.filter(c => c.file !== file && hasPending(c)).length
+    // Past FILES_SHOWN files, and while the finder is closed, the open file sits on the header line
+    const isFolded = !isListOpen && query === null
 
     /** A file in the list: name padded so the counts line up; picking one folds the list again */
     const fileRow = (path: string, indent: number, isAligned = true) => {
@@ -1196,41 +1218,61 @@ export const register: Register = on => {
       </Text>
     )
 
+    /**
+     * A discussion as a margin note: each message on its own lines behind a `│` in the comment's
+     * state color (pending, sent, resolved), no box around it.
+     */
     const thread = (c: ReviewComment, indent: number) => {
       const isSent = c.status === 'sent'
-      return (
-        <Box key={`note:${c.id}`} marginLeft={indent} borderStyle="round" borderColor={isSent ? 'inactive' : 'suggestion'} paddingX={1} flexDirection="column">
-          <Box justifyContent="space-between">
-            <Text>
-              <Text bold>You</Text>
-              <Text dimColor> on {c.lines ? whereOf(c) : 'the whole file'}</Text>
-              {'  '}
-              <Text color={c.isResolved ? 'success' : isSent ? 'inactive' : 'warning'}>
-                {c.isResolved ? '✓ resolved' : isSent ? '✓ sent' : '◷ pending'}
-              </Text>
-            </Text>
-            {isSent ? (
-              <Button key={`replybtn:${c.id}`} plain dimColor label="reply" onPress={() => startReply($, c.id)} />
-            ) : (
-              <Button key={`del:${c.id}`} plain dimColor label="delete" onPress={() => update($, comments, all => all.filter(o => o.id !== c.id))} />
-            )}
+      const tone = c.isResolved ? 'success' : hasPending(c) ? 'warning' : 'inactive'
+      const line = (key: string, body: RenderElement) => (
+        <Box key={key}>
+          <Box flexShrink={0}>
+            <Text color={tone}>│ </Text>
           </Box>
-          <Text dimColor={isSent}>{c.text}</Text>
-          {(c.replies ?? []).map((r, i) => (
-            <Text key={`reply:${c.id}:${i}`}>
-              <Text bold color={r.author === 'you' ? undefined : 'claude'}>
-                {r.author === 'you' ? 'You' : 'Claude'}{' '}
+          <Box flexGrow={1} flexShrink={1}>
+            {body}
+          </Box>
+        </Box>
+      )
+      return (
+        <Box key={`note:${c.id}`} marginLeft={indent} flexDirection="column">
+          {line(
+            `head:${c.id}`,
+            <Box justifyContent="space-between" flexGrow={1}>
+              <Text>
+                <Text bold>You</Text>
+                <Text dimColor> on {c.lines ? whereOf(c) : 'the whole file'}  </Text>
+                <Text color={tone}>{c.isResolved ? '✓ resolved' : isSent ? '✓ sent' : '◷ pending'}</Text>
               </Text>
-              {r.text}
-              {isPendingReply(r) && <Text color="warning"> ◷ pending</Text>}
-            </Text>
-          ))}
-          {answering === c.id && (
-            <Text>
-              <Text bold color="claude">Reply</Text>
-              <Text dimColor> · Esc, then type it in the prompt · q cancels</Text>
-            </Text>
+              {isSent ? (
+                <Button key={`replybtn:${c.id}`} plain dimColor label="reply" onPress={() => startReply($, c.id)} />
+              ) : (
+                <Button key={`del:${c.id}`} plain dimColor label="delete" onPress={() => update($, comments, all => all.filter(o => o.id !== c.id))} />
+              )}
+            </Box>,
           )}
+          {line(`text:${c.id}`, <Text dimColor={isSent}>{c.text}</Text>)}
+          {(c.replies ?? []).map((r, i) =>
+            line(
+              `reply:${c.id}:${i}`,
+              <Text>
+                <Text bold color={r.author === 'you' ? undefined : 'claude'}>
+                  {r.author === 'you' ? 'You' : 'Claude'}{' '}
+                </Text>
+                {r.text}
+                {isPendingReply(r) && <Text color="warning"> ◷ pending</Text>}
+              </Text>,
+            ),
+          )}
+          {answering === c.id &&
+            line(
+              `answer:${c.id}`,
+              <Text>
+                <Text bold color="claude">Reply</Text>
+                <Text dimColor> · Esc, then type it in the prompt · q cancels</Text>
+              </Text>,
+            )}
         </Box>
       )
     }
@@ -1265,7 +1307,17 @@ export const register: Register = on => {
           out.push(
             // A quiet separator in place of the raw `@@ -a,b +c,d @@` header
             <Box key={`hunk:${change.id}:${i}`} justifyContent="space-between">
-              <Text dimColor>{` ${' '.repeat(width)}  ⋯ line ${numberOf(rows[i + 1] ?? row) ?? ''}`}</Text>
+              <Text dimColor>
+                {(() => {
+                  const at = numberOf(rows[i + 1] ?? row)
+                  // Named from the first changed line up, so a function opening in the hunk's context counts
+                  const inHunk = rows.filter(r => r.hunk === row.hunk && r.kind !== 'hunk')
+                  const k = inHunk.findIndex(r => r.kind !== 'ctx')
+                  const changed = k < 0 ? at : inHunk[k]!.kind === 'add' ? inHunk[k]!.newN : (inHunk.slice(0, k).findLast(r => r.newN)?.newN ?? 0) + 1
+                  const where = changed ? contextOf(fileLines, changed) : ''
+                  return ` ${' '.repeat(width)}  ⋯ line ${at ?? ''}${where ? ` · ${where}` : ''}`
+                })()}
+              </Text>
               <Button key={`hunkbtn:${change.id}:${i}`} plain onPress={() => openComposer($, { changeId: change.id, from: i + 1, to: last })}>
                 <Text dimColor>+ note on hunk </Text>
               </Button>
@@ -1298,7 +1350,7 @@ export const register: Register = on => {
                 <Text color={sign}> {MARK[row.kind]} </Text>
               </Button>
               <Box flexGrow={1} flexShrink={1}>
-                <Code source={row.text === '' ? ' ' : row.text} path={change.file} wrap="truncate-end" />
+                <Code source={row.text === '' ? ' ' : row.text} path={change.file} wrap={isWrapped ? 'wrap' : 'truncate-end'} />
               </Box>
             </Box>,
           )
@@ -1339,11 +1391,18 @@ export const register: Register = on => {
       // One blank row between the sections: header, file, diff, notes, buttons
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column">
+          {/* One line: the pane's name, the open file when the list is folded, and the totals */}
           <Box justifyContent="space-between" flexWrap="wrap" columnGap={2}>
-            <Box flexShrink={0}>
+            <Box columnGap={2} flexWrap="wrap" flexShrink={1}>
               <Text bold color="claude">
                 Review
               </Text>
+              {isFolded && fileRow(file, 0, false)}
+              {isFolded && (
+                <Text dimColor>
+                  {placeOf(file)} · file {files.indexOf(file) + 1} of {files.length}
+                </Text>
+              )}
             </Box>
             <Box flexShrink={0}>
               <Text>
@@ -1359,7 +1418,9 @@ export const register: Register = on => {
           </Box>
           <Box columnGap={2} flexWrap="wrap">
             <Key k="i" label={isKeysOpen ? 'hide keys' : 'keys'} run={() => update($, showKeys, open => !open)} />
-            {!isKeysOpen && <Text dimColor>j/k move · v range · c comment · r reply · s send</Text>}
+            {!isKeysOpen && (
+              <Text dimColor>j/k move · v range · c comment · r reply · s send{isFolded ? ' · h/l file · f find' : ''}</Text>
+            )}
           </Box>
           {/* Always drawn so every key works; hidden until i opens it */}
           <Box display={isKeysOpen ? 'flex' : 'none'} flexDirection="column" borderStyle="round" borderColor="inactive" paddingX={1}>
@@ -1381,6 +1442,7 @@ export const register: Register = on => {
               <Key k="e" label="next edit" run={() => keyEdit($, 1)} />
               <Key k="b" label="prev edit" run={() => keyEdit($, -1)} />
               <Key k="t" label={limit === Infinity ? 'cut long diffs' : 'whole diff'} run={() => update($, fullDiff, isWhole => !isWhole)} />
+              <Key k="y" label={isWrapped ? 'cut long lines' : 'wrap long lines'} run={() => update($, wrapLines, isOn => !isOn)} />
             </Box>
             <Box columnGap={2} flexWrap="wrap">
               <Text bold>Review </Text>
@@ -1439,16 +1501,7 @@ export const register: Register = on => {
               </Box>
             ))}
           </Box>
-        ) : (
-          <Box columnGap={2} flexWrap="wrap">
-            {fileRow(file, 0, false)}
-            <Text dimColor>
-              {placeOf(file)} · file {files.indexOf(file) + 1} of {files.length}
-              {viewedCount > 0 ? ` · ${viewedCount}/${files.length} viewed` : ''}
-              {pendingElsewhere > 0 ? ` · ● ${pendingElsewhere} in other files` : ''} · f find · h/l switch
-            </Text>
-          </Box>
-        )}
+        ) : null}
 
         <Box flexDirection="column" gap={1}>
           {/*
@@ -1496,13 +1549,20 @@ export const register: Register = on => {
           {fileNotes.map(n => thread(n, 0))}
           {outdated.length > 0 && <Text dimColor>Outdated: their lines changed since, so they are no longer in the diff</Text>}
           {outdated.map(n => thread(n, 0))}
-          <Input
-            key="comment"
-            placeholder="Note on the whole file (12-20: for lines)"
-            submitLabel="add"
-            value=""
-            onSubmit={(value: string) => void addFileComment($, file, value)}
-          />
+          {isNoteOpen && (
+            <Input
+              key="comment"
+              label="Note "
+              placeholder="on the whole file (12-20: for lines)"
+              submitLabel="add"
+              value=""
+              autoFocus
+              onSubmit={(value: string) => {
+                void addFileComment($, file, value)
+                void update($, noteOpen, () => false)
+              }}
+            />
+          )}
         </Box>
 
         {/* Only what applies now: send when something is pending, clear when something was sent */}
@@ -1513,6 +1573,7 @@ export const register: Register = on => {
           {notes.some(c => c.status === 'sent') && (
             <Button key="clear" label="Clear sent" onPress={() => update($, comments, all => all.filter(c => c.status !== 'sent'))} />
           )}
+          <Button key="filenote" label={isNoteOpen ? 'Cancel note' : '+ File note'} onPress={() => update($, noteOpen, isOpen => !isOpen)} />
           <Button key="startover" label="Start over" onPress={() => startOver($, null)} />
           {pending.length > 0 && <Text dimColor>or they go with your next message</Text>}
         </Box>

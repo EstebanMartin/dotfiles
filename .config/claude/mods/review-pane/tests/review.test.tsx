@@ -579,3 +579,21 @@ test('w jumps to the next open comment across files and puts the cursor on it', 
   expect((await ui.find({ type: 'Text', text: /▸/ }))).toBeDefined()
   await ui.unmount()
 })
+
+test('a hunk separator names the function or section the hunk sits in', async ($, on) => {
+  const now = 'package x\n\n// --- Behaviors ---\nfunc (b Behavior) Try() {\n\ta := 1\n\tb := 2\n\treturn\n}\n'
+  on('command.register', () => ({ value: { command: 'review-pane' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.read', () => ({ value: now }))
+  on('tool.call', () => ({
+    result: { ...EDIT, filePath: '/x.go', originalFile: now.replace('b := 2', 'b := 3'), structuredPatch: [{ oldStart: 5, oldLines: 3, newStart: 5, newLines: 3, lines: ['\ta := 1', '-\tb := 3', '+\tb := 2', '\treturn'] }] },
+  }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Edit', file_path: '/x.go', old_string: 'b := 3', new_string: 'b := 2' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /⋯ line/ }))?.text).toContain('· func (b Behavior) Try()')
+  await ui.unmount()
+})
