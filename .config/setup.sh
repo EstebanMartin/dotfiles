@@ -162,8 +162,18 @@ fi
 # Neovim
 # =============================================================================
 
-# --- Install ---
-brew_install neovim
+# --- Install: nightly build from HEAD; later runs pull the latest commit ---
+# `brew list --versions` prints "neovim HEAD-<sha>" for a HEAD install
+NVIM_VERSION="$(brew list --versions neovim 2>/dev/null || true)"
+case "$NVIM_VERSION" in
+  "") brew install --HEAD neovim ;;
+  *" HEAD-"*) brew upgrade --fetch-HEAD neovim ;;
+  *)
+    # Stable install from an earlier run: swap it for HEAD
+    brew uninstall --ignore-dependencies neovim
+    brew install --HEAD neovim
+    ;;
+esac
 
 # --- ripgrep: used by fzf-lua's live_grep_native (<leader>fg) ---
 brew_install ripgrep
