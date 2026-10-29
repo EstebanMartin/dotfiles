@@ -221,7 +221,7 @@ vim.keymap.set("n", "<localleader>c", function()
 end, { buffer = true, desc = "Toggle test coverage" })
 
 -- =================================================================
--- Split direction helper (shared by <localleader>r and <localleader>d)
+-- Split direction helper (used by <localleader>r)
 -- =================================================================
 -- Whether a new split off `win` should stack "below" or sit to the "right",
 -- based on available space rather than always defaulting to one direction.
@@ -242,136 +242,54 @@ end
 -- =================================================================
 -- <localleader>d: Debug
 -- =================================================================
--- The service and the DAP session are kept in lockstep so neither can
--- outlive the other and dangle in the background:
---   service exits (crash, ^C, buffer wiped) while dlv is attached
---                                        -> tear down the DAP session
---   DAP session ends (:DapTerminate, or the "disconnect" a stopped
---   "attach" session sends, which by itself leaves the debuggee running)
---                                        -> kill the service
---
--- "kill the service" means the actual binary's pid, not vim.fn.jobstop() on
--- the job: jobstop only signals the job's direct child, which is the shell
--- running `make debug` (or `go build && ./binary`) — verified that a `make`
--- recipe survives that signal and keeps the binary running as an orphan.
--- Killing the binary's own pid (already in hand from the polling below) is
--- what actually reaches it; the wrapping shell/make then sees its child die
--- and exits on its own, which fires the job's on_exit same as if it had
--- died naturally.
-vim.keymap.set("n", "<localleader>d",
-    function()
-        local git_root = vim.fs.root(0, ".git")
-        local root = git_root or vim.fn.expand("%:p:h")
-        local binary = vim.fn.fnamemodify(root, ":t") -- repo dir name = binary name
+-- Runs the service in a terminal row, then attaches dlv: code / terminal /
+-- dap-view. The two are kept in lockstep: the service exiting ends the DAP
+-- session, and the session ending kills the service. Kill the binary's own
+-- pid, not the job: jobstop only reaches the shell running make, which
+-- leaves the binary orphaned.
+vim.keymap.set("n", "<localleader>d", function()
+    local dap = require("dap")
+    local root = vim.fs.root(0, ".git") or vim.fn.expand("%:p:h")
+    local binary = vim.fs.basename(root) -- repo dir name = binary name
+    local makefile = root .. "/Makefile"
+    local has_make_debug = vim.fn.filereadable(makefile) == 1
+        and vim.iter(vim.fn.readfile(makefile)):any(function(l) return l:match("^debug:") ~= nil end)
+    -- -N disables optimizations, -l disables inlining: required for dlv to work
+    local cmd = has_make_debug and "make debug"
+        or ("go build -gcflags='all=-N -l' -o ./%s && ./%s"):format(binary, binary)
 
-        -- check if Makefile has a `debug:` target before falling back to raw build
-        local makefile = root .. "/Makefile"
-        local has_make_debug = git_root ~= nil
-            and vim.fn.filereadable(makefile) == 1
-            and vim.iter(vim.fn.readfile(makefile)):any(function(l) return l:match("^debug:") ~= nil end)
+    local pid, timer
+    vim.cmd("botright new") -- full-width row below the code
+    local job = vim.fn.jobstart(cmd, {
+        term = true,
+        cwd = root,
+        on_exit = function()
+            vim.fn.timer_stop(timer)
+            if dap.session() then dap.terminate() end
+        end,
+    })
+    if job <= 0 then
+        return vim.notify("Debug: failed to start service", vim.log.levels.ERROR)
+    end
 
-        local escaped_root = vim.fn.shellescape(root)
-        local make_cmd     = "cd %s && make debug"
-        -- -N disables optimizations, -l disables inlining: required for dlv to work
-        local build_cmd    =
-        "cd %s && go build -gcflags='all=-N -l' -o ./%s && ./%s"
-        local cmd          = has_make_debug
-            and make_cmd:format(escaped_root)
-            or build_cmd:format(escaped_root, binary, binary)
-
-        -- attached: true once dlv has actually attached, so a service that
-        --   dies before that (e.g. build failure) doesn't try to tear down
-        --   a DAP session that was never started
-        -- stopping: guards the two teardown paths below from looping into
-        --   each other (job exit -> stop dap -> disconnect -> stop service -> ...)
-        -- service_pid: the binary's own pid, set once the polling below finds
-        --   it; see the note above on why this is what gets killed
-        local attached     = false
-        local stopping     = false
-        local service_pid ---@type integer?
-        local timer -- the PID-polling timer below, closed once it fires or is superseded
-        local job_id ---@type integer
-
-        local function stop_dap()
-            if stopping then return end
-            stopping = true
-            if timer then
-                timer:stop(); timer:close(); timer = nil
-            end
-            if attached then
-                local ok, dap = pcall(require, "dap")
-                if ok and dap.session() then dap.terminate() end
-            end
-        end
-
-        local function stop_service()
-            if stopping then return end
-            stopping = true
-            if service_pid then
-                vim.uv.kill(service_pid, "sigterm")
-            else
-                -- dlv never attached (still building); best effort on the job itself
-                vim.fn.jobstop(job_id)
-            end
-        end
-
-        -- run the build+service in a terminal split, same as <localleader>r
-        local buf = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_open_win(buf, true, { split = split_direction(0), win = 0 })
-        job_id = vim.fn.jobstart(cmd, { term = true, on_exit = stop_dap })
-        if job_id <= 0 then
-            vim.notify("Debug: failed to start service", vim.log.levels.ERROR)
-            return
-        end
-
-        -- poll every 500ms for the process PID; attach DAP once it appears
-        -- cap at 240 attempts (2min): a cold `-N -l` build recompiles every
-        -- dependency and easily takes longer than a warm one. A build that
-        -- fails ends the job, whose on_exit (stop_dap) stops this timer early
-        timer = assert(vim.uv.new_timer())
-        local attempts = 0
-        timer:start(500, 500, vim.schedule_wrap(function()
-            attempts = attempts + 1
-            if attempts > 240 then
-                timer:stop(); timer:close(); timer = nil
-                vim.notify("Debug: process not found after 2min", vim.log.levels.WARN)
-                return
-            end
-            -- pgrep -x matches the full process name exactly
-            local pgrep = vim.system(
-                { "pgrep", "-x", binary },
-                { text = true }
-            ):wait()
-            local pid = tonumber(pgrep.stdout)
-            if not pid then return end -- not up yet, try again next tick
-
-            timer:stop(); timer:close(); timer = nil
-
-            local ok, dap = pcall(require, "dap")
-            if not ok then
-                vim.notify("Debug: nvim-dap is not installed", vim.log.levels.WARN)
-                return
-            end
-
-            attached = true
-            service_pid = pid
-            -- an "attach" session's disconnect leaves the debuggee running by
-            -- default, so stopping the debugger has to kill the service itself
-            dap.listeners.after.event_terminated["go_debug_start"] = stop_service
-            dap.listeners.after.disconnect["go_debug_start"] = stop_service
-
-            -- "attach" mode connects to a running process vs "launch" starts one
-            dap.run({
-                type      = "go",
-                request   = "attach",
-                name      = "Attach to " .. binary,
-                mode      = "local",
-                processId = pid,
-            })
-        end))
-    end,
-    { buffer = true, desc = "Debug start" }
-)
+    -- poll for the binary's pid every 500ms, up to 2min (cold -N -l build)
+    timer = vim.fn.timer_start(500, function(t)
+        pid = tonumber(vim.fn.system({ "pgrep", "-x", binary }))
+        if not pid then return end
+        vim.fn.timer_stop(t)
+        dap.listeners.after.event_terminated["go_debug_start"] = function() vim.uv.kill(pid, "sigterm") end
+        dap.listeners.after.disconnect["go_debug_start"] = dap.listeners.after.event_terminated["go_debug_start"]
+        require("dap-view").open()
+        vim.cmd("wincmd =") -- equal thirds
+        dap.run({
+            type      = "go",
+            request   = "attach",
+            name      = "Attach to " .. binary,
+            mode      = "local",
+            processId = pid,
+        })
+    end, { ["repeat"] = 240 })
+end, { buffer = true, desc = "Debug start" })
 
 -- =================================================================
 -- <localleader>i: Import package

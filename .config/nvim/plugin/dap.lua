@@ -23,6 +23,14 @@ vim.schedule(function()
         end,
     })
 
+    -- let <C-w>= and <C-w>_ resize the dap-view panel like any other window
+    vim.api.nvim_create_autocmd("FileType", {
+        pattern = "dap-view",
+        callback = function()
+            vim.wo[0][0].winfixheight = false
+        end,
+    })
+
     local dap = require("dap")
     -- opening/closing dap-view with the session is handled by auto_toggle
     dap.defaults.fallback.switchbuf = "usevisible,usetab,uselast"
