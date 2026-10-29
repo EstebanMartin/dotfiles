@@ -3,25 +3,25 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-/* Layout: the terminal review pane, on the web: a header strip, the file list, rounded change cards of tinted diff rows, an action bar */
+/* Layout: the terminal review pane, on the web: a header strip, the file list (or a finder), one row of edit tabs, the diff of tinted rows with comment threads under their lines, the notes on the whole file */
 :root {
   --bg: #fbfaf8; --panel: #ffffff; --fg: #24211e; --muted: #7b756e; --rule: #e4e0da;
   --accent: #c15f3c;            /* the pane's "claude" accent */
   --pick: #3b6fd6;              /* the pane's "suggestion" blue: picked lines */
   --warn: #a8761a; --ok: #2f7d4f;
-  --add: #2f7d4f; --add-bg: #e7f5ec; --del: #b33a2e; --del-bg: #fbeae7; --hunk-bg: #f2f0ec; --pick-bg: #e6eefc;
+  --add: #2f7d4f; --add-bg: #e7f5ec; --del: #b33a2e; --del-bg: #fbeae7; --pick-bg: #e6eefc;
   --k: #8a3fb8; --s: #2f7d4f; --c: #8d877f; --f: #2c63c4; --n: #b3591b;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #161514; --panel: #1d1c1a; --fg: #e8e4dd; --muted: #948d84; --rule: #34312d;
   --accent: #e08a65; --pick: #7aa5f5; --warn: #e3b55a; --ok: #79c99a;
-  --add: #8fd6a8; --add-bg: #17301f; --del: #f19b90; --del-bg: #3a1d19; --hunk-bg: #24221f; --pick-bg: #1f2b45;
+  --add: #8fd6a8; --add-bg: #17301f; --del: #f19b90; --del-bg: #3a1d19; --pick-bg: #1f2b45;
   --k: #c99af0; --s: #8fd6a8; --c: #8a847b; --f: #8db4f7; --n: #f0a56e; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #161514; --panel: #1d1c1a; --fg: #e8e4dd; --muted: #948d84; --rule: #34312d;
   --accent: #e08a65; --pick: #7aa5f5; --warn: #e3b55a; --ok: #79c99a;
-  --add: #8fd6a8; --add-bg: #17301f; --del: #f19b90; --del-bg: #3a1d19; --hunk-bg: #24221f; --pick-bg: #1f2b45;
+  --add: #8fd6a8; --add-bg: #17301f; --del: #f19b90; --del-bg: #3a1d19; --pick-bg: #1f2b45;
   --k: #c99af0; --s: #8fd6a8; --c: #8a847b; --f: #8db4f7; --n: #f0a56e; color-scheme: dark }
 
 * { box-sizing: border-box; }
@@ -30,7 +30,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--mono); font-s
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: flex; flex-direction: column; gap: 18px; }
 button { font: inherit; color: inherit; }
-button:focus-visible, textarea:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; }
 .dim { color: var(--muted); }
 .plus { color: var(--add); } .minus { color: var(--del); }
 
@@ -38,21 +38,30 @@ header.top { display: flex; flex-wrap: wrap; justify-content: space-between; ali
 header.top h1 { margin: 0; font-size: 15px; font-weight: 700; color: var(--accent); }
 .totals { font-variant-numeric: tabular-nums; }
 .pending { color: var(--warn); }
-.note { margin: 0; color: var(--muted); max-width: 72ch; }
 
-.files { display: flex; flex-direction: column; }
-.file { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; gap: 0 10px; padding: 1px 0; border-radius: 3px; }
-.file:hover .fname { text-decoration: underline; }
-.file .mark { color: var(--muted); width: 1.2em; }
-.file[aria-current="true"] .mark { color: var(--accent); }
+/* Files: grouped by folder; a finder field filters them fuzzily */
+.files { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.finder { width: 100%; max-width: 32rem; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; }
+.folder { display: flex; flex-direction: column; }
+.folder-name { color: var(--muted); }
+.file { all: unset; cursor: pointer; display: flex; flex-wrap: wrap; gap: 0 10px; padding: 1px 0 1px 1.4em; border-radius: 3px; position: relative; }
+.file::before { content: ""; position: absolute; left: .3em; color: var(--accent); }
+.file[aria-current="true"]::before { content: "▸"; }
 .file[aria-current="true"] .fname { font-weight: 700; }
-hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
-.hint { color: var(--muted); }
+.file:hover .fname { text-decoration: underline; }
+.file .count { color: var(--warn); }
 
-.change { border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); overflow: hidden; }
-.change-head { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--rule); }
-.change-head b { font-weight: 700; }
-.rows { overflow-x: auto; }
+/* One row: edit tabs, what the picked edit was, its counts */
+.editbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.tabs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.tab { all: unset; cursor: pointer; color: var(--muted); padding: 0 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+.tab:hover { color: var(--fg); }
+.tab[aria-pressed="true"] { background: var(--accent); color: var(--panel); font-weight: 700; }
+.tab:focus-visible { outline: 2px solid var(--pick); }
+
+.change { display: flex; flex-direction: column; gap: 6px; }
+.change-head { display: flex; justify-content: space-between; gap: 12px; }
+.rows { overflow-x: auto; border-radius: 6px; }
 .row { display: grid; grid-template-columns: 1.1em auto 1.6em minmax(0, 1fr); align-items: start; min-width: max-content; }
 .row.add { background: var(--add-bg); } .row.del { background: var(--del-bg); }
 .row.picked { background: var(--pick-bg); }
@@ -61,20 +70,20 @@ hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 .nums:hover { color: var(--pick); background: color-mix(in srgb, var(--pick) 12%, transparent); }
 .row.picked .nums { color: var(--panel); background: var(--pick); }
 .sign { user-select: none; text-align: center; }
-.row.add .sign { color: var(--add); } .row.del .sign { color: var(--del); } .row.ctx .sign { color: var(--muted); }
+.row.add .sign { color: var(--add); } .row.del .sign { color: var(--del); }
 .code { white-space: pre; padding-right: 16px; }
-.hunk { display: flex; justify-content: space-between; gap: 12px; background: var(--hunk-bg); padding: 2px 12px 2px 1.1em; color: var(--muted); min-width: max-content; }
-.tabs { display: flex; flex-wrap: wrap; gap: 4px 16px; }
-.tab { all: unset; cursor: pointer; color: var(--muted); padding: 1px 0; }
-.tab::before { content: "  "; white-space: pre; }
-.tab[aria-pressed="true"] { color: var(--fg); font-weight: 700; }
-.tab[aria-pressed="true"]::before { content: "▸ "; color: var(--accent); }
-.tab:hover { text-decoration: underline; }
-.tab:focus-visible { outline: 2px solid var(--pick); }
-.hunk button { all: unset; cursor: pointer; color: var(--pick); }
-.hunk button:hover { text-decoration: underline; }
+.hunk { display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px 2px 3.2em; color: var(--muted); min-width: max-content; }
+.hunk button { all: unset; cursor: pointer; color: var(--muted); }
+.hunk button:hover { color: var(--pick); text-decoration: underline; }
 
-.composer { margin: 6px 12px 8px; border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
+/* A discussion under its lines: the comment, then each reply in turn */
+.thread { margin: 4px 12px 8px 3.2em; border: 1px solid var(--rule); border-radius: 8px; padding: 6px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--panel); max-width: 72ch; white-space: normal; }
+.thread.pending { border-color: var(--warn); }
+.thread .who { font-weight: 700; }
+.thread .who.claude { color: var(--accent); }
+.state { color: var(--muted); } .state.pending { color: var(--warn); } .state.resolved { color: var(--ok); }
+
+.composer { margin: 6px 12px 8px 3.2em; border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); max-width: 72ch; }
 .composer textarea { width: 100%; min-height: 4.2em; resize: vertical; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .btn { cursor: pointer; border: 1px solid var(--rule); background: var(--panel); border-radius: 6px; padding: 3px 10px; }
@@ -83,6 +92,10 @@ hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 .btn:disabled { opacity: .5; cursor: default; }
 .status { color: var(--muted); }
 
+.notes { display: flex; flex-direction: column; gap: 6px; }
+.notes h2 { margin: 0; font-size: 13px; font-weight: 700; }
+.notes .thread { margin: 0; }
+
 .hljs-keyword, .hljs-built_in { color: var(--k); } .hljs-string { color: var(--s); }
 .hljs-comment { color: var(--c); font-style: italic; } .hljs-title, .hljs-function { color: var(--f); }
 .hljs-number, .hljs-literal { color: var(--n); }
@@ -90,6 +103,7 @@ hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
 <div class="wrap">
@@ -97,17 +111,17 @@ footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8p
     <h1>Review</h1>
     <span class="totals" id="totals"><span class="dim">loading…</span></span>
   </header>
-  <p class="note" id="note"></p>
 
-  <nav class="files" id="files" aria-label="Changed files"></nav>
-  <hr class="rule">
+  <nav class="files" aria-label="Changed files">
+    <input class="finder" id="finder" type="search" placeholder="Find a changed file" aria-label="Find a changed file" hidden>
+    <div id="files"></div>
+  </nav>
 
-  <p class="hint">Select a line number to comment, a second one (or shift-click) for a range, or + comment on hunk.</p>
   <main id="changes" style="display:flex;flex-direction:column;gap:14px"></main>
+  <section class="notes" id="notes"></section>
 
-  <hr class="rule">
   <footer>
-    <span class="dim">Comments show as pins on the lines. Send to Claude and the reply lands in the same thread.</span>
+    <span class="dim">Select a line number to comment, a second one (or shift-click) for a range. Send to Claude and the reply lands in the same thread.</span>
     <span class="dim" id="cstate"></span>
   </footer>
 </div>
@@ -119,9 +133,14 @@ let data = { files: [] }
 let fileIndex = 0
 let editView = null      // index of the one edit shown, or null for all changes as one diff
 let pick = null          // { change, from, to } row indexes, inclusive
+let query = ''           // the finder's text
 let comments = null
 let canSend = 'off'
 const posted = new Set() // "change:row" keys that got a comment in this visit
+
+/** Past this many files the list is a finder; past this many edits the tabs show the ends and the picked one */
+const FILES_SHOWN = 6
+const TABS_SHOWN = 9
 
 const $ = s => document.querySelector(s)
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n }
@@ -137,8 +156,9 @@ function rowsOf(diff) {
   }
   return rows
 }
+const MARK = { add: '+', del: '-', ctx: ' ' }
+const numberOf = r => (r.kind === 'del' ? r.oldN : r.newN)
 const tally = diff => rowsOf(diff).reduce((t, r) => (r.kind === 'add' ? t.add++ : r.kind === 'del' ? t.del++ : 0, t), { add: 0, del: 0 })
-const sum = list => list.reduce((a, b) => ({ add: a.add + b.add, del: a.del + b.del }), { add: 0, del: 0 })
 const range = (a, b) => (a === b ? `L${a}` : `L${a}-${b}`)
 
 function where(rows, p) {
@@ -148,11 +168,72 @@ function where(rows, p) {
   const nums = news.length ? news : olds
   return nums.length ? `${news.length ? '' : 'old '}${range(Math.min(...nums), Math.max(...nums))}` : ''
 }
+const whereOf = c => (c.lines ? `${c.side === 'old' ? 'old ' : ''}${range(c.lines[0], c.lines[1])}` : 'the whole file')
 
+/** `+3 −1`, leaving out a side that is zero */
 function counts(t) {
   const s = el('span')
-  s.append(el('span', 'plus', `+${t.add}`), ' ', el('span', 'minus', `−${t.del}`))
+  if (t.add) s.append(el('span', 'plus', `+${t.add}`))
+  if (t.add && t.del) s.append(' ')
+  if (t.del) s.append(el('span', 'minus', `−${t.del}`))
   return s
+}
+
+/** The deepest folder holding every path */
+function commonDir(paths) {
+  const parts = paths.map(p => p.split('/').slice(0, -1))
+  const first = parts[0] || []
+  let n = 0
+  while (n < first.length && parts.every(p => p[n] === first[n])) n++
+  return first.slice(0, n).join('/')
+}
+
+/** Letters in order, scored for runs, word starts and hits in the file name; null when they are not all there */
+function fuzzyScore(q, path) {
+  q = q.toLowerCase().replace(/\s+/g, ''); const p = path.toLowerCase()
+  if (!q) return 0
+  const nameAt = p.lastIndexOf('/') + 1
+  let score = 0, at = -1
+  for (const ch of q) {
+    const found = p.indexOf(ch, at + 1)
+    if (found < 0) return null
+    score += 1
+    if (found === at + 1) score += 5
+    if (found === 0 || '/._-'.includes(p[found - 1])) score += 8
+    if (found >= nameAt) score += 3
+    at = found
+  }
+  return score - p.length / 100
+}
+
+/** The edit tabs drawn: every one up to TABS_SHOWN, else `1 2 3 4 … 76 77` plus the picked one's neighbours; null is a gap */
+function editWindow(count, at) {
+  if (count <= TABS_SHOWN) return Array.from({ length: count }, (_, i) => i)
+  const keep = [...new Set([0, 1, 2, 3, count - 2, count - 1, ...(at < 0 ? [] : [at - 1, at, at + 1])])]
+    .filter(i => i >= 0 && i < count).sort((a, b) => a - b)
+  return keep.flatMap((i, k) => (k > 0 && i - keep[k - 1] > 1 ? [null, i] : [i]))
+}
+
+/** What one change was: `Edited by Bash`, `Created`, `Moved from lua/old.lua` */
+function describe(c, base) {
+  const from = c.renamedFrom ? ` from ${c.renamedFrom.slice(base.length + 1) || c.renamedFrom}` : ''
+  return `${c.verb || 'Edited'}${c.tool === 'Bash' ? ' by Bash' : ''}${from}`
+}
+
+/** Where a pane comment sits in these rows: its picked lines found by content, nearest its line number; null when gone */
+function locate(c, rows) {
+  const want = c.snippet || []
+  if (!want.length) return null
+  const idx = rows.flatMap((r, i) => (r.kind === 'hunk' ? [] : [i]))
+  const near = c.lines ? c.lines[0] : 0
+  let best = null, bestGap = Infinity
+  for (let s = 0; s + want.length <= idx.length; s++) {
+    if (!want.every((w, j) => `${MARK[rows[idx[s + j]].kind]}${rows[idx[s + j]].text}` === w)) continue
+    const first = rows[idx[s]]
+    const gap = Math.abs(((c.side === 'old' ? first.oldN : first.newN) || 0) - near)
+    if (gap < bestGap) { bestGap = gap; best = [idx[s], idx[s + want.length - 1]] }
+  }
+  return best
 }
 
 function highlight(code, lang) {
@@ -165,74 +246,131 @@ function say(text) {
   clearTimeout(say.timer); say.timer = setTimeout(() => { t.hidden = true }, 2200)
 }
 
-function render() {
-  const files = data.files
-  const all = sum(files.flatMap(f => f.changes.map(c => tally(c.diff))))
-  const totals = $('#totals'); totals.replaceChildren(
-    el('span', 'dim', `${files.length} file${files.length === 1 ? '' : 's'} · `), counts(all),
-    el('span', 'dim', ` · ${files.reduce((n, f) => n + f.changes.length, 0)} changes`))
-  $('#note').textContent = data.note || ''
+/** One discussion from the pane: the comment and each reply after it */
+function thread(c) {
+  const isPending = c.status === 'pending' || c.replies.some(r => r.author === 'you' && r.status === 'pending')
+  const box = el('div', `thread${isPending ? ' pending' : ''}`)
+  const head = el('div')
+  const state = c.isResolved ? ['resolved', '✓ resolved'] : isPending ? ['pending', '◷ pending'] : ['', '✓ sent']
+  head.append(el('span', 'who', 'You'), el('span', 'dim', ` on ${whereOf(c)}  `), el('span', `state ${state[0]}`, state[1]))
+  box.append(head, el('div', '', c.text))
+  for (const r of c.replies) {
+    const line = el('div')
+    line.append(el('span', `who${r.author === 'you' ? '' : ' claude'}`, r.author === 'you' ? 'You ' : 'Claude '), r.text)
+    box.append(line)
+  }
+  return box
+}
 
-  const nav = $('#files'); nav.replaceChildren()
-  files.forEach((f, i) => {
+function renderFiles(files, base) {
+  const dirOf = p => p.slice(base.length + 1).split('/').slice(0, -1).join('/') || '.'
+  const finder = $('#finder')
+  finder.hidden = files.length <= FILES_SHOWN
+  const shown = finder.hidden || !query
+    ? files.map((f, i) => i)
+    : files.map((f, i) => ({ i, s: fuzzyScore(query, f.path.slice(base.length + 1)) }))
+        .filter(m => m.s !== null).sort((a, b) => b.s - a.s).map(m => m.i)
+
+  const fileButton = i => {
+    const f = files[i]
     const b = el('button', 'file'); b.type = 'button'
     b.setAttribute('aria-current', String(i === fileIndex))
-    const parts = f.path.split('/')
-    b.append(el('span', 'mark', i === fileIndex ? '▸' : ''), el('span', 'fname', parts.pop()),
-      el('span', 'dim', parts.slice(-2).join('/')), counts(sum(f.changes.map(c => tally(c.diff)))))
+    const open = f.comments.filter(c => c.status === 'pending' || !c.isResolved).length
+    b.append(el('span', 'fname', f.path.split('/').pop()), counts(f.counts || tally(f.net || '')))
+    if (query) b.append(el('span', 'dim', `${dirOf(f.path)}/`))
+    if (open) b.append(el('span', 'count', `● ${open}`))
     b.addEventListener('click', () => { fileIndex = i; editView = null; pick = null; render() })
-    nav.append(b)
-  })
+    return b
+  }
+
+  const list = $('#files'); list.replaceChildren()
+  if (!shown.length) { list.append(el('p', 'dim', 'No changed file matches.')); return }
+  if (query) { const box = el('div', 'folder'); shown.forEach(i => box.append(fileButton(i))); list.append(box); return }
+  // Grouped by folder from the shared one, when there is more than one
+  const dirs = [...new Set(shown.map(i => dirOf(files[i].path)))]
+  for (const d of dirs) {
+    const box = el('div', 'folder')
+    if (dirs.length > 1) box.append(el('span', 'folder-name', `${d}/`))
+    shown.filter(i => dirOf(files[i].path) === d).forEach(i => box.append(fileButton(i)))
+    list.append(box)
+  }
+}
+
+function render() {
+  const files = data.files
+  const base = commonDir(files.map(f => f.path))
+  const all = files.reduce((t, f) => { const c = f.counts || tally(f.net || ''); return { add: t.add + c.add, del: t.del + c.del } }, { add: 0, del: 0 })
+  const open = files.reduce((n, f) => n + f.comments.filter(c => c.status === 'pending' || !c.isResolved).length, 0)
+  $('#totals').replaceChildren(el('span', 'dim', `${files.length} file${files.length === 1 ? '' : 's'} · `), counts(all),
+    ...(open ? [el('span', 'pending', ` · ${open} open comment${open === 1 ? '' : 's'}`)] : []))
+  renderFiles(files, base)
 
   const file = files[fileIndex]
   const main = $('#changes'); main.replaceChildren()
+  const notes = $('#notes'); notes.replaceChildren()
   if (!file) { main.append(el('p', 'dim', 'Nothing to review yet.')); return }
 
   // All changes as one net diff when the pane could tell it, else each edit; or the one edit picked
   const edits = file.changes
-  const shown = editView !== null && edits[editView] ? [{ ...edits[editView], label: `edit ${editView + 1} of ${edits.length}` }]
-    : typeof file.net === 'string' ? [{ verb: 'All changes', diff: file.net, label: `${edits.length} edit${edits.length === 1 ? '' : 's'} as one diff` }]
-    : edits.map((c, i) => ({ ...c, label: `edit ${i + 1} of ${edits.length}` }))
+  const chosen = editView !== null ? edits[editView] : null
+  const shown = chosen ? [chosen] : typeof file.net === 'string' ? [{ diff: file.net, isNet: true }] : edits
 
+  const bar = el('div', 'editbar'); const left = el('div', 'tabs')
   if (edits.length > 1) {
-    const tabs = el('div', 'tabs')
-    ;[null, ...edits.map((_, i) => i)].forEach(i => {
-      const b = el('button', 'tab', i === null ? 'All changes' : `Edit ${i + 1}`); b.type = 'button'
-      if (i !== null) b.append(el('span', 'dim', ` ${edits[i].verb === 'Created' ? 'created' : 'edited'}`))
+    left.append(el('span', 'dim', 'Edits'))
+    const tab = (label, i) => {
+      const b = el('button', 'tab', label); b.type = 'button'
       b.setAttribute('aria-pressed', String(i === editView))
       b.addEventListener('click', () => { editView = i; pick = null; render() })
-      tabs.append(b)
-    })
-    main.append(tabs)
+      return b
+    }
+    left.append(tab('all', null))
+    for (const i of editWindow(edits.length, editView ?? -1)) {
+      if (i === null) { left.append(el('span', 'dim', '…')); continue }
+      left.append(tab(`${i + 1}${edits[i].tool === 'Bash' ? '$' : edits[i].verb === 'Created' ? '+' : ''}`, i))
+    }
   }
+  // What the picked edit was (a plain edit needs no word); under "all", the tabs' legend
+  if (chosen) { if (chosen.tool === 'Bash' || chosen.verb !== 'Edited') left.append(el('span', 'dim', describe(chosen, base))) }
+  else if (edits.length > 1) {
+    const legend = [...(edits.some(c => c.verb === 'Created' && c.tool !== 'Bash') ? ['+ created'] : []), ...(edits.some(c => c.tool === 'Bash') ? ['$ by Bash'] : [])]
+    if (legend.length) left.append(el('span', 'dim', legend.join(' · ')))
+  } else if (edits[0]) left.append(el('b', '', describe(edits[0], base)))
+  bar.append(left)
+  if (chosen) bar.append(counts(tally(chosen.diff)))
+  main.append(bar)
 
-  const width = Math.max(2, ...shown.flatMap(c => rowsOf(c.diff).map(r => String(Math.max(r.oldN || 0, r.newN || 0)).length)))
+  const width = Math.max(2, ...shown.flatMap(c => rowsOf(c.diff).map(r => String(numberOf(r) || 0).length)))
   const pad = n => String(n ?? '').padStart(width)
+  const placed = new Set()
 
   shown.forEach((change, ci) => {
     const rows = rowsOf(change.diff)
-    const card = el('section', 'change'); card.id = `change-${ci + 1}`
-    const head = el('div', 'change-head')
-    const title = el('span'); title.append(el('b', '', change.verb || change.tool), el('span', 'dim', ` · ${change.label}`))
-    head.append(title, counts(tally(change.diff)))
-    const body = el('div', 'rows')
-    card.append(head, body)
+    const card = el('section', 'change')
+    if (shown.length > 1) {
+      const head = el('div', 'change-head'); const title = el('span')
+      title.append(el('b', '', `Edit ${edits.indexOf(change) + 1}`), el('span', 'dim', ` · ${describe(change, base)}`))
+      head.append(title, counts(tally(change.diff))); card.append(head)
+    }
+    const body = el('div', 'rows'); card.append(body)
+    // Each pane comment under the last of its lines, as found in this diff
+    const threads = file.comments.flatMap(c => { const at = c.lines && !placed.has(c) ? locate(c, rows) : null; if (at) placed.add(c); return at ? [{ c, at }] : [] })
 
     rows.forEach((row, ri) => {
       if (row.kind === 'hunk') {
-        const h = el('div', 'hunk'); h.append(el('span', '', row.text))
-        const b = el('button', '', '+ comment on hunk'); b.type = 'button'
+        const h = el('div', 'hunk'); h.append(el('span', '', `⋯ line ${numberOf(rows[ri + 1] || row) ?? ''}`))
+        const b = el('button', '', '+ note on hunk'); b.type = 'button'
         const last = rows.findLastIndex(r => r.hunk === row.hunk)
         b.addEventListener('click', () => choose({ change: ci, from: ri + 1, to: last }))
         h.append(b); body.append(h)
       } else {
         const isPicked = pick && pick.change === ci && ri >= pick.from && ri <= pick.to
+        const isNoted = posted.has(`${ci}:${ri}`) || threads.some(t => ri >= t.at[0] && ri <= t.at[1])
         const r = el('div', `row ${row.kind}${isPicked ? ' picked' : ''}`)
         r.dataset.commentTarget = ''
         r.dataset.row = `${ci}:${ri}`
-        const bar = el('span', 'bar', isPicked ? '▌' : posted.has(`${ci}:${ri}`) ? '●' : '')
-        const nums = el('button', 'nums', `${pad(row.oldN)} ${pad(row.newN)}`); nums.type = 'button'
-        nums.setAttribute('aria-label', `Comment on line ${row.newN ?? row.oldN}`)
+        const nums = el('button', 'nums', pad(numberOf(row))); nums.type = 'button'
+        nums.setAttribute('aria-label', `Comment on line ${numberOf(row)}`)
         nums.addEventListener('click', ev => {
           const same = pick && pick.change === ci
           if (same && (ev.shiftKey || (pick.from === pick.to && pick.from !== ri))) {
@@ -242,14 +380,21 @@ function render() {
         const code = el('span', 'code')
         const html = highlight(row.text, file.language)
         if (html !== null) code.innerHTML = html || ' '; else code.textContent = row.text || ' '
-        r.append(bar, nums, el('span', 'sign', row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ''), code)
+        r.append(el('span', 'bar', isPicked ? '▌' : isNoted ? '●' : ''), nums, el('span', 'sign', row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ''), code)
         body.append(r)
       }
       if (pick && pick.change === ci && ri === pick.to) body.append(composer(file, rows, ci))
+      for (const t of threads) if (t.at[1] === ri) body.append(thread(t.c))
     })
-    if (rows.length === 0) body.append(el('p', 'dim', 'No net change: the file is back to how it was.'))
+    if (rows.length === 0) body.append(el('p', 'dim', change.renamedFrom ? 'Moved without changing its text.' : 'No net change: the file is back to how it was.'))
     main.append(card)
   })
+
+  // Notes on the whole file, and line comments whose lines are no longer in the diff shown
+  const fileNotes = file.comments.filter(c => !c.lines)
+  const outdated = file.comments.filter(c => c.lines && !placed.has(c))
+  if (fileNotes.length) { notes.append(el('h2', '', 'Notes on the whole file')); fileNotes.forEach(c => notes.append(thread(c))) }
+  if (outdated.length) { notes.append(el('p', 'dim', 'Outdated: their lines changed since, so they are not in this diff')); outdated.forEach(c => notes.append(thread(c))) }
 }
 
 function composer(file, rows, ci) {
@@ -307,8 +452,16 @@ async function choose(next) {
   if (comments) { try { canSend = await comments.canSendToClaude() } catch { canSend = 'off' } ; render() }
 }
 
+$('#finder').addEventListener('input', ev => { query = ev.target.value; render() })
+$('#finder').addEventListener('keydown', ev => {
+  if (ev.key !== 'Enter') return
+  const first = document.querySelector('#files .file')
+  if (first) first.click()
+})
+
 async function boot() {
   try { data = await (await fetch('changes.json')).json() } catch { data = { files: [] } }
+  for (const f of data.files) f.comments = (f.comments || []).map(c => ({ ...c, replies: c.replies || [] }))
   render()
   comments = await (window.claude?.use?.('comments') ?? Promise.resolve(null))
   if (comments) { try { canSend = await comments.canSendToClaude() } catch { canSend = 'off' } }

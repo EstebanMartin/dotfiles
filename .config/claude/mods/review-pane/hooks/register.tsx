@@ -794,15 +794,35 @@ async function openInBrowser($: EngineInterface, url: string): Promise<boolean> 
 /** Publishes the pane's changes to the web review page and opens it, without a turn of Claude's */
 async function openOnWeb($: EngineInterface) {
   const list = await read($, changes)
+  const notes = await read($, comments)
   const files = await Promise.all(
-    [...new Set(list.map(c => c.file))].map(async path => {
+    [...new Set(list.map(c => c.file))].sort().map(async path => {
       const edits = list.filter(c => c.file === path)
       const net = await netChangeOf($, path, edits)
+      const { add, del } = await countsOf($, path, edits)
       return {
         path,
         language: LANGUAGES[path.split('.').pop()?.toLowerCase() ?? ''] ?? '',
         ...(net ? { net: net.diff } : {}),
-        changes: edits.map(c => ({ tool: c.tool, verb: isCreate(c.diff) ? 'Created' : 'Edited', diff: c.diff })),
+        counts: { add, del },
+        changes: edits.map(c => ({
+          tool: c.tool,
+          verb: c.renamedFrom ? 'Moved' : isCreate(c.diff) ? 'Created' : 'Edited',
+          ...(c.renamedFrom ? { renamedFrom: c.renamedFrom } : {}),
+          diff: c.diff,
+        })),
+        // The pane's discussions, drawn on the page where their lines are found in the diff shown
+        comments: notes
+          .filter(n => n.file === path)
+          .map(n => ({
+            lines: n.lines,
+            side: n.side,
+            snippet: n.snippet,
+            text: n.text,
+            status: n.status,
+            isResolved: n.isResolved === true,
+            replies: (n.replies ?? []).map(r => ({ author: r.author === 'you' ? 'you' : 'claude', text: r.text })),
+          })),
       }
     }),
   )
