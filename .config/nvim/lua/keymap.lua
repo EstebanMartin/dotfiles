@@ -9,9 +9,9 @@ vim.g.maplocalleader = ";" -- filetype-specific leader
 -- ====================================================================
 -- select some text like "path/to/file.go:42" and press gf to open it
 vim.keymap.set("x", "gf", function()
-    -- copy the visually selected text into register "z" so we can read it
-    vim.cmd('normal! "zy')
-    local text = vim.fn.getreg("z"):gsub("[\r\n]", "") -- remove any line breaks
+    -- read the selection without touching a register, joining wrapped lines
+    local text = table.concat(vim.fn.getregion(vim.fn.getpos("v"), vim.fn.getpos("."), { type = vim.fn.mode() }))
+    vim.cmd.normal({ vim.keycode("<Esc>"), bang = true }) -- leave visual mode
 
     -- try to split into "filename:linenumber"; if that doesn't match,
     -- just treat the whole selection as the filename
@@ -109,8 +109,8 @@ end, { desc = "Diagnostics quickfix at nearest" })
 -- ====================================================================
 -- Auto-close brackets
 -- ====================================================================
--- Shared by <C-l> (insert a missing closer) and <CR> (expand into a
--- block) below. Checking the character directly, rather than mapping on
+-- Used by <C-l> below; mini.pairs (plugin/mini-nvim.lua) handles <CR>
+-- inside a pair. Checking the character directly, rather than mapping on
 -- a sequence like "{<Tab>": the latter makes "{" an ambiguous prefix of a
 -- longer mapping, so Neovim holds it undisplayed for up to 'timeoutlen'
 -- (1000ms here, unset) waiting to see whether <Tab> follows.
@@ -189,17 +189,3 @@ vim.keymap.set("i", "<C-y>",
 -- placeholders live and typed < > must replace the text, not indent
 vim.keymap.set("x", "<", "<gv", { desc = "Indent left, keep selection" })
 vim.keymap.set("x", ">", ">gv", { desc = "Indent right, keep selection" })
-
--- ====================================================================
--- <CR>: split an empty bracket pair onto its own indented line
--- ====================================================================
--- turns "(<cursor>)" into "(<CR><Tab><cursor><CR>)"
-vim.keymap.set("i", "<CR>", function()
-    local close = pair_before_cursor()
-    if close and char_after_cursor() == close then
-        -- "<C-o>O" over "<Esc>O": <C-o> runs one Normal-mode command
-        -- without actually leaving Insert mode
-        return "<CR><C-o>O"
-    end
-    return "<CR>"
-end, { expr = true, replace_keycodes = true, desc = "Split bracket pair onto its own indented line, else CR" })

@@ -2,6 +2,8 @@ vim.pack.add({
     { src = "https://github.com/rose-pine/neovim", name = "rose-pine" },
 })
 require("rose-pine").setup({
+  variant = "auto", -- follows vim.o.background: dark_variant when dark, "dawn" when light
+  dark_variant = "main",
   dim_inactive_windows = false,
   extend_background_behind_borders = false,
   styles = {

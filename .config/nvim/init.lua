@@ -2,28 +2,6 @@
 vim.g.config_start = vim.uv.hrtime()
 
 -- ====================================================================
--- Open file:line:col from CLI arg (replaces fileline.nvim)
--- ====================================================================
-if vim.fn.argc() == 1 then
-    local arg = vim.fn.argv(0) --[[@as string]]
-    local file, line, col = arg:match("^(.+):(%d+):?(%d*)$")
-    if file and vim.uv.fs_stat(file) then
-        vim.schedule(function()
-            vim.cmd.edit(vim.fn.fnameescape(file))
-            vim.api.nvim_win_set_cursor(0, {
-                tonumber(line),
-                col ~= "" and (tonumber(col) - 1) or 0,
-            })
-        end)
-    end
-end
-
--- ====================================================================
--- Bruno requests: no built-in rule, and ftplugin/ runs only after detection
--- ====================================================================
-vim.filetype.add({ extension = { bru = "bru" } })
-
--- ====================================================================
 -- Experimental UI2: floating cmdline and messages
 -- ====================================================================
 -- Nvim 0.13 moved msg timeout and cmd height into 'messagesopt' and errors on

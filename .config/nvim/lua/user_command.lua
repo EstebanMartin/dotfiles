@@ -17,7 +17,7 @@ vim.api.nvim_create_user_command("CopyPath",
 
         -- if a range was selected (e.g. in visual mode), append the line
         -- numbers to the path, like "lib/foo.go:10" or "lib/foo.go:10-15"
-        -- ("-" rather than ":", which init.lua would read as a column)
+        -- ("-" rather than ":", which lua/autocmd.lua would read as a column)
         if opts.range > 0 then
             rel_path = rel_path .. ":" .. opts.line1
             if opts.line1 ~= opts.line2 then

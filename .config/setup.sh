@@ -177,7 +177,7 @@ brew_install fish-lsp
 brew_install lua-language-server
 brew_install yaml-language-server
 
-# --- Tools used by ftplugin/json.lua and ftplugin/bru.lua ---
+# --- Tools used by ftplugin/json.lua and lua/bruno/ ---
 brew_install jq
 brew_install bruno-cli
 brew_install node

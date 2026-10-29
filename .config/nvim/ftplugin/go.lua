@@ -188,16 +188,8 @@ vim.keymap.set("n", "<localleader>c", function()
                     end
                 end
 
-                -- ask Go for the overall coverage percentage of the whole package
-                local cover_result = vim.system(
-                    { "go", "tool", "cover", "-func=" .. coverage_path },
-                    { text = true }
-                ):wait()
-                local total_pct = cover_result.stdout:match("total:%s*%S+%s+([%d%.]+)%%")
-
-                vim.fn.delete(coverage_path) -- temp file no longer needed
-
                 if not has_data then
+                    vim.fn.delete(coverage_path)
                     vim.notify("No coverage data for current file", vim.log.levels.INFO)
                     return
                 end
@@ -207,9 +199,21 @@ vim.keymap.set("n", "<localleader>c", function()
                     vim.api.nvim_win_set_cursor(0, { first_uncovered_line, 0 })
                 end
 
-                vim.notify(
-                    ("Go coverage: %s%% total"):format(total_pct or "?"),
-                    vim.log.levels.INFO
+                -- ask Go for the overall coverage percentage of the whole
+                -- package, in the background like go test itself
+                vim.system(
+                    { "go", "tool", "cover", "-func=" .. coverage_path },
+                    { text = true },
+                    function(cover_result)
+                        vim.schedule(function()
+                            vim.fn.delete(coverage_path) -- temp file no longer needed
+                            local total_pct = (cover_result.stdout or ""):match("total:%s*%S+%s+([%d%.]+)%%")
+                            vim.notify(
+                                ("Go coverage: %s%% total"):format(total_pct or "?"),
+                                vim.log.levels.INFO
+                            )
+                        end)
+                    end
                 )
             end)
         end
@@ -226,9 +230,7 @@ end, { buffer = true, desc = "Toggle test coverage" })
 -- it is wide, so raw column/line counts would call almost every window
 -- "wide". Scaling height by 2 approximates the on-screen aspect instead: a
 -- window that reads as taller than it is wide gets stacked below; one that
--- reads as wider than tall gets a side-by-side split. Same logic as
--- ftplugin/bru.lua's split_direction, adapted to nvim_open_win's
--- "below"/"right" vocabulary instead of vim.cmd's "split"/"vsplit".
+-- reads as wider than tall gets a side-by-side split.
 ---@param win integer
 ---@return "below"|"right"
 local function split_direction(win)
@@ -264,14 +266,9 @@ vim.keymap.set("n", "<localleader>d",
 
         -- check if Makefile has a `debug:` target before falling back to raw build
         local makefile = root .. "/Makefile"
-        local has_make_debug = false
-        if git_root and vim.fn.filereadable(makefile) == 1 then
-            local grep = vim.system(
-                { "grep", "-q", "^debug:", makefile },
-                { text = true }
-            ):wait()
-            has_make_debug = grep.code == 0
-        end
+        local has_make_debug = git_root ~= nil
+            and vim.fn.filereadable(makefile) == 1
+            and vim.iter(vim.fn.readfile(makefile)):any(function(l) return l:match("^debug:") ~= nil end)
 
         local escaped_root = vim.fn.shellescape(root)
         local make_cmd     = "cd %s && make debug"
@@ -442,9 +439,7 @@ vim.keymap.set("n", "<localleader>r", function()
     -- otherwise fall back to plain "go run ."
     local has_make_run = git_root
         and vim.fn.filereadable(root .. "/Makefile") == 1
-        and vim.system(
-            { "grep", "-q", "^run:", root .. "/Makefile" }
-        ):wait().code == 0
+        and vim.iter(vim.fn.readfile(root .. "/Makefile")):any(function(l) return l:match("^run:") ~= nil end)
 
     local cmd = ("cd %s && %s"):format(
         vim.fn.shellescape(root),

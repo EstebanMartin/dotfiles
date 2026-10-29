@@ -37,7 +37,7 @@ local function header(headers, name)
 end
 
 ---@param r table raw bru result entry
----@param pretty string? jq-pretty-printed body (keeps key order)
+---@param pretty string? jq-pretty-printed body (keeps key order; without jq, keys come out unordered)
 local function normalize(r, pretty)
     local res = r.response or {}
     local ct = header(res.headers, "content-type")
@@ -51,7 +51,7 @@ local function normalize(r, pretty)
     elseif binary then
         body = ("[binary, %s bytes, %s]"):format(tostring(res.size or "?"), ct)
     elseif type(res.data) == "table" then
-        body = pretty or vim.json.encode(res.data)
+        body = pretty or vim.json.encode(res.data, { indent = "  " })
     elseif res.data ~= nil then
         body = tostring(res.data)
     else
@@ -113,17 +113,22 @@ function M.run(file, root, env, vars, cb)
             -- bru exits 1 on failed assertions / connection errors but still
             -- writes the file: render whenever a result exists.
             local r = read_result(out)
-            local pretty
-            if r and r.response and type(r.response.data) == "table" and vim.fn.executable("jq") == 1 then
-                local j = vim.system({ "jq", "--indent", "2", ".[0].results[0].response.data", out }, { text = true }):wait()
-                if j.code == 0 then pretty = j.stdout:gsub("\n$", "") end
-            end
-            os.remove(out)
             if not r then
+                os.remove(out)
                 local msg = vim.trim((proc.stderr or "") .. (proc.stdout or ""))
                 return cb(nil, msg ~= "" and msg or "bru produced no result")
             end
-            cb(normalize(r, pretty))
+            if not (r.response and type(r.response.data) == "table" and vim.fn.executable("jq") == 1) then
+                os.remove(out)
+                return cb(normalize(r))
+            end
+            -- pretty-print in the background: large bodies would block the editor
+            vim.system({ "jq", "--indent", "2", ".[0].results[0].response.data", out }, { text = true }, function(j)
+                vim.schedule(function()
+                    os.remove(out)
+                    cb(normalize(r, j.code == 0 and (j.stdout:gsub("\n$", "")) or nil))
+                end)
+            end)
         end)
     end)
 end

@@ -5,17 +5,12 @@
 ---@return string path jq-style path to the node under the cursor, "" if none
 function _G._json_path()
     local buf = vim.api.nvim_get_current_buf()
-    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-    row = row - 1 -- nvim_win_get_cursor is 1-based; treesitter is 0-based
-
     local parser = vim.treesitter.get_parser(buf, "json")
-    if not parser then return "" end
+    -- get_node only reads parsed trees, so parse first
+    if not parser or not parser:parse()[1] then return "" end -- malformed/empty JSON has no tree
 
-    local tree = parser:parse()[1]
-    if not tree then return "" end -- malformed/empty JSON has no tree
-
-    -- find the smallest node in the syntax tree that covers the cursor
-    local node = tree:root():named_descendant_for_range(row, col, row, col)
+    -- the smallest node in the syntax tree that covers the cursor
+    local node = vim.treesitter.get_node({ lang = "json" })
 
     -- walk up from the cursor's node to the root, building the path
     -- one piece at a time (we build it backwards, so each new piece
