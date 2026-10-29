@@ -1,6 +1,6 @@
 local abbrevs = {
     -- cdr: cd to git repository root
-    cdr = "execute 'cd' system('git rev-parse --show-toplevel')",
+    cdr = "execute 'cd' fnameescape(v:lua.vim.fs.root(0, '.git'))",
 
     -- cdh: cd to current file's directory
     cdh = "cd %:h",
