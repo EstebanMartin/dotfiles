@@ -528,7 +528,7 @@ async function startOver($: EngineInterface, only: string | null) {
   await update($, viewed, all => Object.fromEntries(Object.entries(all).filter(([f]) => !inScope(f))))
   for (const f of dropped) countCache.delete(f)
   await showView($, null, null)
-  if (only === null) await $.store.delete(storeKey(await $.session.cwd()))
+  if (only === null) await forgetReviews($)
   $.ui.toast(only === null ? 'Review started over' : `Started over on ${only.split('/').pop()}`)
 }
 
@@ -610,6 +610,30 @@ async function keyFinder($: EngineInterface) {
   } catch {
     // the field draws on the next pass with autoFocus
   }
+}
+
+/** The comment w last jumped to, so the next press goes on from it */
+let lastJump: string | null = null
+
+/**
+ * w: jumps to the next comment still open (unsent, or sent and not resolved), across files in list
+ * order then by line, wrapping: its file is opened on all changes and the cursor put on its lines.
+ */
+async function keyNextComment($: EngineInterface) {
+  const { files } = await openFile($)
+  const open = (await read($, comments)).filter(c => hasPending(c) || !c.isResolved)
+  if (open.length === 0) {
+    $.ui.toast('No open comments')
+    return
+  }
+  const order = [...open].sort((a, b) => files.indexOf(a.file) - files.indexOf(b.file) || (a.lines?.[0] ?? 0) - (b.lines?.[0] ?? 0))
+  const next = order[(order.findIndex(c => c.id === lastJump) + 1) % order.length]!
+  lastJump = next.id
+  await showView($, next.file, null)
+  const { shown } = await openFile($)
+  const at = anchorsOn([next], shown).get(next.id)
+  if (at) await moveTo($, { changeId: at.changeId, row: at.rows[0] })
+  $.ui.toast(`Open comment ${order.indexOf(next) + 1} of ${order.length}${at || !next.rows ? '' : ' (outdated, under the file)'}`)
 }
 
 /** Opens a file from the finder or the list, and closes the finder */
@@ -839,32 +863,79 @@ async function openOnWeb($: EngineInterface) {
 
 // ─── Kept across sessions ───────────────────────────────────────────────────
 
-/** The `$.store` key of a folder's review: changes, comments and marks, so a new session picks it up */
-const storeKey = (cwd: string) => `review:${cwd}`
+/**
+ * A review is saved per repository, so a session in one repo does not pick up another's: the `$.store`
+ * key of the files under one root (their git repository, or, for files in none, the folder they share).
+ */
+const STORE_PREFIX = 'review:'
+const storeKey = (root: string) => `${STORE_PREFIX}${root}`
 /** The store holds 4 MiB in all; past this a review is kept without its "before" texts, then not at all */
 const MAX_SAVED = 1_500_000
 
-async function saveReview($: EngineInterface) {
-  const list = await read($, changes)
-  const key = storeKey(await $.session.cwd())
-  if (list.length === 0) return $.store.delete(key)
-  const review = { changes: list, comments: await read($, comments), viewed: await read($, viewed), baselines: await read($, baselines) }
-  if (JSON.stringify(review).length > MAX_SAVED) review.baselines = {}
-  if (JSON.stringify(review).length > MAX_SAVED) return
-  await $.store.set(key, review)
+type SavedReview = { changes?: Change[]; comments?: ReviewComment[]; viewed?: Record<string, string>; baselines?: Record<string, string> }
+
+/** Each folder's git repository root, or null for none; asked once per folder per load */
+const repoRoots = new Map<string, string | null>()
+/** The roots this load saved a review under, so one emptied since (or started over) is removed */
+const savedRoots = new Set<string>()
+
+async function repoRootOf($: EngineInterface, dir: string): Promise<string | null> {
+  if (!repoRoots.has(dir)) repoRoots.set(dir, (await gitOut($, ['git', '-C', dir, 'rev-parse', '--show-toplevel']))?.trim() || null)
+  return repoRoots.get(dir) ?? null
 }
 
-/** Picks up the folder's last review when this session has none of its own yet */
+/** The root of every file: its repository, else the folder all such files share */
+async function rootsOf($: EngineInterface, files: readonly string[]) {
+  const roots = new Map<string, string | null>()
+  for (const f of files) roots.set(f, await repoRootOf($, f.slice(0, f.lastIndexOf('/')) || '/'))
+  const loose = files.filter(f => roots.get(f) === null)
+  const shared = commonDir(loose) || '/'
+  return new Map(files.map(f => [f, roots.get(f) ?? shared]))
+}
+
+async function saveReview($: EngineInterface) {
+  const list = await read($, changes)
+  const roots = await rootsOf($, [...new Set(list.map(c => c.file))])
+  const notes = await read($, comments)
+  const marks = await read($, viewed)
+  const befores = await read($, baselines)
+  const now = new Set(roots.values())
+  for (const root of savedRoots) if (!now.has(root)) await $.store.delete(storeKey(root))
+  for (const root of now) {
+    const isHere = (f: string) => roots.get(f) === root
+    const pick = <T,>(all: Record<string, T>) => Object.fromEntries(Object.entries(all).filter(([f]) => isHere(f)))
+    const review: SavedReview = { changes: list.filter(c => isHere(c.file)), comments: notes.filter(c => isHere(c.file)), viewed: pick(marks), baselines: pick(befores) }
+    if (JSON.stringify(review).length > MAX_SAVED) review.baselines = {}
+    if (JSON.stringify(review).length > MAX_SAVED) continue
+    await $.store.set(storeKey(root), review)
+    savedRoots.add(root)
+  }
+}
+
+/** Removes every review this load saved, and the ones it picked up */
+async function forgetReviews($: EngineInterface) {
+  for (const root of savedRoots) await $.store.delete(storeKey(root))
+  savedRoots.clear()
+}
+
+/**
+ * Picks up the reviews saved for this session's repository (or folder), and for folders inside it,
+ * when this session has none of its own yet.
+ */
 async function restoreReview($: EngineInterface, cwd: string) {
   if ((await read($, changes)).length > 0) return
-  const saved = (await $.store.get(storeKey(cwd))) as
-    | { changes?: Change[]; comments?: ReviewComment[]; viewed?: Record<string, string>; baselines?: Record<string, string> }
-    | undefined
-  if (!saved?.changes?.length) return
-  await update($, changes, () => saved.changes!)
-  await update($, comments, () => saved.comments ?? [])
-  await update($, viewed, () => saved.viewed ?? {})
-  await update($, baselines, () => saved.baselines ?? {})
+  const here = (await repoRootOf($, cwd)) ?? cwd
+  const keys = (await $.store.keys()).filter(k => k.startsWith(STORE_PREFIX))
+  const mine = keys.map(k => k.slice(STORE_PREFIX.length)).filter(root => root === here || root.startsWith(`${here}/`))
+  for (const root of mine) {
+    const saved = (await $.store.get(storeKey(root))) as SavedReview | undefined
+    if (!saved?.changes?.length) continue
+    await update($, changes, list => [...list, ...saved.changes!])
+    await update($, comments, list => [...list, ...(saved.comments ?? [])])
+    await update($, viewed, all => ({ ...all, ...saved.viewed }))
+    await update($, baselines, all => ({ ...all, ...saved.baselines }))
+    savedRoots.add(root)
+  }
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────
@@ -1302,6 +1373,7 @@ export const register: Register = on => {
               <Key k="c" label="comment" run={() => keyComment($)} />
               <Key k="a" label="on hunk" run={() => keyHunkComment($)} />
               <Key k="r" label="reply" run={() => keyReply($)} />
+              <Key k="w" label="next open comment" run={() => keyNextComment($)} />
               <Key k="x" label="delete" run={() => keyRemove($)} />
               <Key k="q" label="cancel" run={() => keyCancel($)} />
             </Box>

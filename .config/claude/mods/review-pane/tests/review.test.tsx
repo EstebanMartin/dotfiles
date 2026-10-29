@@ -124,7 +124,7 @@ test('o publishes a new page on first use, remembers it, and updates it after', 
     return { value: undefined }
   })
   on('process.run', (_, e) => {
-    opened.push([...e.argv])
+    if (e.argv[0] !== 'git') opened.push([...e.argv]) // git: the repo lookups for saving reviews
     return exited(0, '', '')
   })
   on('tool.call', (_, e) => {
@@ -488,12 +488,42 @@ test('a new session in the same folder picks up the last review', async ($, on) 
       ? { value: { changes: [{ id: 'k1', file: '/proj/kept.lua', tool: 'Edit', diff: '@@ -1,1 +1,1 @@\n-a\n+b', at: 1 }], comments: [], viewed: {}, baselines: {} } }
       : { value: undefined },
   )
+  on('store.keys', () => ({ value: ['review:/proj', 'review:/elsewhere'] }))
   on('fs.read', () => ({ value: 'b\n' }))
 
   await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /kept\.lua/ }))?.text).toContain('kept.lua')
   await ui.unmount()
+})
+
+test('each repository keeps its own saved review', async ($, on) => {
+  const saved = new Map<string, unknown>()
+  const paths = ['/proj/lib/a.lua', '/home/me/.config/b.lua']
+  let n = 0
+  on('command.register', () => ({ value: { command: 'review-pane' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/proj' }))
+  on('store.keys', () => ({ value: [] }))
+  on('store.set', (_, e) => {
+    saved.set(e.key, e.value)
+    return { value: undefined }
+  })
+  // /proj is a git repository; the config folder is in none
+  on('process.run', (_, e) => (e.argv.join(' ').includes('/proj') ? exited(0, '/proj\n') : exited(128, '', 'not a git repository')))
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  on('tool.call', () => ({ result: { ...EDIT, filePath: paths[n++]! } }))
+
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  for (const p of paths) await $.tool.call({ tool: 'Edit', file_path: p, old_string: 'a', new_string: 'b' })
+  await $.prompt.submit(asTyped('hi'))
+
+  const filesIn = (key: string) => ((saved.get(key) as { changes: { file: string }[] }).changes ?? []).map(c => c.file)
+  expect([...saved.keys()].sort()).toEqual(['review:/home/me/.config', 'review:/proj'])
+  expect(filesIn('review:/proj')).toEqual(['/proj/lib/a.lua'])
+  expect(filesIn('review:/home/me/.config')).toEqual(['/home/me/.config/b.lua'])
 })
 
 test('undo still works when lines were added later inside an edited block', async ($, on) => {
@@ -512,5 +542,40 @@ test('undo still works when lines were added later inside an edited block', asyn
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.findAll({ type: 'Button' })).some(b => b.key?.startsWith('ln:net:'))).toBe(true) // drawn as one net diff
+  await ui.unmount()
+})
+
+test('w jumps to the next open comment across files and puts the cursor on it', async ($, on) => {
+  const toasts: string[] = []
+  const paths = ['/w/a.lua', '/w/b.lua']
+  let n = 0
+  on('command.register', () => ({ value: { command: 'review-pane' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.focus', focused)
+  on('ui.scroll', scrolled)
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  on('tool.call', () => ({ result: { ...EDIT, filePath: paths[n++]! } }))
+
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
+  for (const p of paths) await $.tool.call({ tool: 'Edit', file_path: p, old_string: 'a', new_string: 'b' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+
+  // a comment on b.lua's second line, while a.lua is open
+  await $.ui.press({ plugin: 'review-pane', key: 'key:l' })
+  const rows = (await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('ln:'))
+  await $.ui.press({ plugin: 'review-pane', key: rows[1]! })
+  await $.prompt.submit(asTyped('look here'))
+  await $.ui.press({ plugin: 'review-pane', key: 'key:h' })
+
+  await $.ui.press({ plugin: 'review-pane', key: 'key:w' })
+  expect(toasts.at(-1)).toBe('Open comment 1 of 1')
+  expect((await ui.find({ type: 'Text', text: /b\.lua/ }))?.text).toContain('b.lua')
+  expect((await ui.find({ type: 'Text', text: /▸/ }))).toBeDefined()
   await ui.unmount()
 })
