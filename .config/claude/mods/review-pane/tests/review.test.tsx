@@ -1,4 +1,15 @@
 import { expect, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
+
+/** A prompt as typed at the composer */
+const asTyped = (text: string) => ({ text, wait: false, origin: { kind: 'composer' } as const })
+/** The engine's answers to the pane moving its focus ring and scrolling, which no test looks at */
+const focused = () => ({})
+const scrolled = () => ({})
+/** A finished process, as `$.process.run` resolves */
+const exited = (exitCode: number, stdout: string, stderr = '') => ({
+  value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
+})
 
 const PANE = {
   plugin: 'review-pane',
@@ -36,7 +47,7 @@ test('a comment on a picked line range reaches the next prompt', async ($, on) =
   on('command.register', () => ({ value: { command: 'review-pane' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
-  on('ui.focus', () => ({ value: undefined }))
+  on('ui.focus', focused)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: EDIT }))
@@ -57,12 +68,12 @@ test('a comment on a picked line range reaches the next prompt', async ($, on) =
 
   await $.ui.press({ plugin: 'review-pane', key: lines[1]! })
   await $.ui.press({ plugin: 'review-pane', key: lines[2]! })
-  const typed = await $.prompt.submit({ text: 'use wincmd here' })
+  const typed = await $.prompt.submit(asTyped('use wincmd here'))
   expect(typed.drop).toContain('keymaps.lua L4-5')
   expect((await ui.find({ type: 'Text', text: /use wincmd here/ }))?.text).toBe('use wincmd here')
   await ui.unmount()
 
-  const sent = await $.prompt.submit({ text: 'hi' })
+  const sent = await $.prompt.submit(asTyped('hi'))
   const note = sent.context?.join('\n') ?? ''
   expect(note).toContain('keymaps.lua L4-5')
   expect(note).toContain('+map("n", "<C-j>", "<C-w>j")')
@@ -72,8 +83,8 @@ test('a comment on a picked line range reaches the next prompt', async ($, on) =
 test('vim keys: j moves, v starts a range, c opens the comment box on it', async ($, on) => {
   on('command.register', () => ({ value: { command: 'review-pane' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.focus', () => ({ value: undefined }))
-  on('ui.scroll', () => ({ value: {} }))
+  on('ui.focus', focused)
+  on('ui.scroll', scrolled)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: EDIT }))
@@ -88,10 +99,10 @@ test('vim keys: j moves, v starts a range, c opens the comment box on it', async
   await $.ui.press({ plugin: 'review-pane', key: 'key:j' })
   await $.ui.press({ plugin: 'review-pane', key: 'key:c' })
   expect((await ui.find({ type: 'Text', text: /on L4-5/ }))?.text).toContain('L4-5')
-  expect((await $.prompt.submit({ text: 'pair these' })).drop).toContain('L4-5')
+  expect((await $.prompt.submit(asTyped('pair these'))).drop).toContain('L4-5')
   await ui.unmount()
 
-  const sent = await $.prompt.submit({ text: 'hi' })
+  const sent = await $.prompt.submit(asTyped('hi'))
   expect(sent.context?.join('\n') ?? '').toContain('keymaps.lua L4-5')
 })
 
@@ -114,7 +125,7 @@ test('o publishes a new page on first use, remembers it, and updates it after', 
   })
   on('process.run', (_, e) => {
     opened.push([...e.argv])
-    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+    return exited(0, '', '')
   })
   on('tool.call', (_, e) => {
     if (e.tool !== 'Artifact') return { result: EDIT }
@@ -209,7 +220,7 @@ test('a file a Bash command changes in a git repo shows up, compared with git in
       : args.includes(' status ')
         ? ran ? ' M a.txt\0?? new.txt\0' : '' // clean before the command
         : args.includes(' show :a.txt') ? 'one\ntwo\n' : ''
-    return { value: { exitCode: args.includes(' show :new.txt') ? 128 : 0, stdout, stderr: '' } }
+    return exited(args.includes(' show :new.txt') ? 128 : 0, stdout)
   })
   on('fs.read', (_, e) => ({ value: e.path === '/repo/a.txt' ? 'one\nTWO\n' : 'hello\n' }))
   on('tool.call', () => {
@@ -235,7 +246,7 @@ test('outside git, a Bash command changing a file Claude edited is tracked too',
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/plain' }))
-  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } }))
+  on('process.run', () => exited(128, '', 'not a git repository'))
   on('fs.read', () => ({ value: content }))
   on('tool.call', (_, e) => {
     if (e.tool === 'Bash') {
@@ -259,7 +270,7 @@ test('Claude answers a sent comment with the reply tool, and the pane shows it',
   on('command.register', () => ({ value: { command: 'review-pane' } }))
   on('tool.register', () => ({ value: { tool: 'mcp__review-pane__reply' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.focus', () => ({ value: undefined }))
+  on('ui.focus', focused)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: EDIT }))
@@ -270,9 +281,9 @@ test('Claude answers a sent comment with the reply tool, and the pane shows it',
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const lines = (await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('ln:'))
   await $.ui.press({ plugin: 'review-pane', key: lines[1]! })
-  await $.prompt.submit({ text: 'use wincmd here' })
+  await $.prompt.submit(asTyped('use wincmd here'))
 
-  const sent = (await $.prompt.submit({ text: 'hi' })).context?.join('\n') ?? ''
+  const sent = (await $.prompt.submit(asTyped('hi'))).context?.join('\n') ?? ''
   const id = sent.match(/- \[([^\]]+)\]/)?.[1]
   expect(id).toBeTruthy()
   expect(sent).toContain('mcp__review-pane__reply')
@@ -291,7 +302,7 @@ test('after Claude replies, r continues the discussion and the next prompt carri
   on('command.register', () => ({ value: { command: 'review-pane' } }))
   on('tool.register', () => ({ value: { tool: 'mcp__review-pane__reply' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.focus', () => ({ value: undefined }))
+  on('ui.focus', focused)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('tool.call', () => ({ result: EDIT }))
@@ -302,26 +313,26 @@ test('after Claude replies, r continues the discussion and the next prompt carri
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const lines = (await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('ln:'))
   await $.ui.press({ plugin: 'review-pane', key: lines[1]! })
-  await $.prompt.submit({ text: 'use wincmd here' })
-  const first = (await $.prompt.submit({ text: 'hi' })).context?.join('\n') ?? ''
+  await $.prompt.submit(asTyped('use wincmd here'))
+  const first = (await $.prompt.submit(asTyped('hi'))).context?.join('\n') ?? ''
   const id = first.match(/- \[([^\]]+)\]/)![1]!
   await $.tool.call({ tool: 'mcp__review-pane__reply', commentId: id, text: 'Done, switched to wincmd.', resolved: true })
 
   // the cursor still sits on the commented line: r opens the reply box on its discussion
   await $.ui.press({ plugin: 'review-pane', key: 'key:r' })
   expect((await ui.find({ type: 'Text', text: /type it in the prompt/ }))?.text).toContain('Esc')
-  const typed = await $.prompt.submit({ text: 'also for <C-h>?' })
+  const typed = await $.prompt.submit(asTyped('also for <C-h>?'))
   expect(typed.drop).toContain('Reply added')
   expect((await ui.find({ type: 'Text', text: /1 pending/ }))?.text).toContain('1 pending')
 
-  const second = (await $.prompt.submit({ text: 'next' })).context?.join('\n') ?? ''
+  const second = (await $.prompt.submit(asTyped('next'))).context?.join('\n') ?? ''
   expect(second).toContain(`[${id}]`)
   expect(second).toContain('continued discussion')
   expect(second).toContain('You (Claude): Done, switched to wincmd.')
   expect(second).toContain('User: also for <C-h>?')
 
   // sent once: the prompt after that carries nothing
-  expect((await $.prompt.submit({ text: 'again' })).context ?? []).toEqual([])
+  expect((await $.prompt.submit(asTyped('again'))).context ?? []).toEqual([])
   await ui.unmount()
 })
 
@@ -355,12 +366,12 @@ test('past six files the list folds to the open file, and f finds one fuzzily', 
 })
 
 /** A session on /f.txt whose edits each set the file's text and report the patch that made it */
-function editsOn(on: Parameters<Parameters<typeof test>[1]>[1], steps: { text: string; before: string; hunk: object }[]) {
+function editsOn(on: Parameters<TestBody>[1], steps: { text: string; before: string; hunk: object }[]) {
   let n = 0
   let text = steps[0]!.before
   on('command.register', () => ({ value: { command: 'review-pane' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.focus', () => ({ value: undefined }))
+  on('ui.focus', focused)
   on('ui.toast', () => ({ value: undefined }))
   on('clock.now', () => ({ value: 1_700_000_000_000 + n }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -387,7 +398,7 @@ test('a comment on the net diff follows its line through later edits, and is out
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const rows = (await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('ln:'))
   await $.ui.press({ plugin: 'review-pane', key: rows[2]! }) // +B
-  await $.prompt.submit({ text: 'why capital?' })
+  await $.prompt.submit(asTyped('why capital?'))
 
   await $.tool.call($edit) // a line added above: the comment moves down with +B
   expect((await ui.find({ type: 'Text', text: /why capital/ }))?.text).toBe('why capital?')
@@ -417,11 +428,11 @@ test('m marks a file viewed until Claude changes it again, and z starts the file
   const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const rows = (await again.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('ln:'))
   await $.ui.press({ plugin: 'review-pane', key: rows[1]! })
-  await $.prompt.submit({ text: 'pending one' })
+  await $.prompt.submit(asTyped('pending one'))
   await $.ui.press({ plugin: 'review-pane', key: 'key:z' })
   expect((await again.find({ type: 'Text', text: /f\.txt/ }))?.text).toContain('f.txt') // refused: a comment is pending
 
-  await $.prompt.submit({ text: 'send it' })
+  await $.prompt.submit(asTyped('send it'))
   await $.ui.press({ plugin: 'review-pane', key: 'key:z' })
   expect((await again.find({ type: 'Text', text: /Nothing to review yet/ }))?.text).toContain('Nothing to review')
   await again.unmount()
@@ -432,16 +443,16 @@ test('a long diff is cut at 300 rows until t, and a file Bash moved shows as mov
   let ran = false
   on('command.register', () => ({ value: { command: 'review-pane' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.focus', () => ({ value: undefined }))
+  on('ui.focus', focused)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/repo' }))
   on('process.run', (_, e) => {
     const args = e.argv.join(' ')
-    if (args.includes('rev-parse')) return { value: { exitCode: 0, stdout: '/repo\n', stderr: '' } }
-    if (args.includes(' status ')) return { value: { exitCode: 0, stdout: ran ? ' D old.txt\0?? big.txt\0?? new.txt\0' : '', stderr: '' } }
-    if (args.includes(' show :old.txt')) return { value: { exitCode: 0, stdout: 'same\ntext\n', stderr: '' } }
-    return { value: { exitCode: 128, stdout: '', stderr: '' } }
+    if (args.includes('rev-parse')) return exited(0, '/repo\n', '')
+    if (args.includes(' status ')) return exited(0, ran ? ' D old.txt\0?? big.txt\0?? new.txt\0' : '', '')
+    if (args.includes(' show :old.txt')) return exited(0, 'same\ntext\n', '')
+    return exited(128, '', '')
   })
   on('fs.read', (_, e) => {
     if (e.path === '/repo/big.txt') return { value: big }

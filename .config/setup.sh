@@ -246,3 +246,6 @@ brew_cask_install amethyst
 
 # --- Install: native installer (auto-updates in the background) ---
 [ -x "$HOME/.local/bin/claude" ] || /bin/bash -c "$(curl -fsSL https://claude.ai/install.sh)"
+
+# --- TypeScript: `tsc -p <mod folder>` type-checks the mods in ~/.config/claude/mods ---
+brew_install typescript
