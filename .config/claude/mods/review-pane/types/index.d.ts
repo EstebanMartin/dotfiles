@@ -1,10 +1,13 @@
 export type Change = {
   id: string
   file: string
-  tool: 'Edit' | 'Write'
+  /** 'Bash' for a change a shell command made, found by comparing files around the call */
+  tool: 'Edit' | 'Write' | 'Bash'
   /** Unified-diff hunks of this one change */
   diff: string
   at: number
+  /** The path a shell command moved the file from */
+  renamedFrom?: string
 }
 
 export type ReviewComment = {
@@ -20,6 +23,19 @@ export type ReviewComment = {
   snippet?: string[]
   text: string
   status: 'pending' | 'sent'
+  /** The discussion after the comment: Claude's answers (its `reply` tool) and the user's follow-ups */
+  replies?: Reply[]
+  /** Set by Claude's reply when it considers the comment handled */
+  isResolved?: boolean
+}
+
+export type Reply = {
+  /** Who wrote it; absent on replies stored before the user could answer, which are Claude's */
+  author?: 'you' | 'claude'
+  text: string
+  at: number
+  /** A follow-up of the user's: pending until it rides along with a prompt */
+  status?: 'pending' | 'sent'
 }
 
 /** The diff rows picked for a comment, inclusive: the comment box is open on them */
@@ -44,6 +60,14 @@ declare module 'claude-code' {
       edit: string | null
       /** Whether the full list of keys is shown under the header */
       showKeys: boolean
+      /** The file finder's query while it is open (f), null when closed */
+      finder: string | null
+      /** Files marked viewed, each with the id of its last change then: a later change clears the mark */
+      viewed: Record<string, string>
+      /** Whether long diffs are drawn whole instead of cut at the row limit */
+      fullDiff: boolean
+      /** The comment whose discussion the next prompt answers, while its reply box is open */
+      replyTo: string | null
     }
   }
 }
