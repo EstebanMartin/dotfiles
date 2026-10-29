@@ -325,14 +325,16 @@ vim.keymap.set("n", "<localleader>d",
         end
 
         -- poll every 500ms for the process PID; attach DAP once it appears
-        -- cap at 20 attempts (10s) to avoid polling forever if process fails
+        -- cap at 240 attempts (2min): a cold `-N -l` build recompiles every
+        -- dependency and easily takes longer than a warm one. A build that
+        -- fails ends the job, whose on_exit (stop_dap) stops this timer early
         timer = assert(vim.uv.new_timer())
         local attempts = 0
         timer:start(500, 500, vim.schedule_wrap(function()
             attempts = attempts + 1
-            if attempts > 20 then
+            if attempts > 240 then
                 timer:stop(); timer:close(); timer = nil
-                vim.notify("Debug: process not found after 10s", vim.log.levels.WARN)
+                vim.notify("Debug: process not found after 2min", vim.log.levels.WARN)
                 return
             end
             -- pgrep -x matches the full process name exactly
