@@ -29,8 +29,17 @@
 	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
 
 [url "ssh://git@github.com/"]
-	# Always use SSH instead of HTTPS for GitHub
-	insteadOf = https://github.com/
+	# Push over SSH; fetch over HTTPS (credentials from gh below) so sandboxed
+	# clones like Homebrew's, which can't reach the SSH agent, still work
+	pushInsteadOf = https://github.com/
+
+# HTTPS credentials from `gh auth setup-git`; the empty helper clears inherited ones
+[credential "https://github.com"]
+	helper =
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/opt/homebrew/bin/gh auth git-credential
 
 # Replaces large files in the repo with text pointers, storing the actual content on a separate server
 [filter "lfs"]
