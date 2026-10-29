@@ -18,8 +18,6 @@ const showKeys = atom({ plugin: 'review-pane', key: 'showKeys' } as const, false
 
 let counter = 0
 const newId = (now: number) => `${now.toString(36)}-${(counter += 1)}`
-/** What the open comment box holds, for its Add button; typing never redraws */
-let draft = ''
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -259,14 +257,8 @@ async function moveTo($: EngineInterface, ref: RowRef | undefined) {
 }
 
 async function openComposer($: EngineInterface, next: Selection) {
-  draft = ''
   await update($, visual, () => null)
   await update($, selection, () => next)
-  try {
-    await $.ui.focus({ requestId: PANE, key: 'inline' })
-  } catch {
-    // the field draws on the next pass with autoFocus
-  }
 }
 
 // ─── The vim-style keys, each pressed by its letter while the pane has the keyboard ─
@@ -389,7 +381,6 @@ async function addLineComment($: EngineInterface, change: Change, picked: Select
     text,
     status: 'pending',
   }
-  draft = ''
   await update($, comments, all => [...all, comment])
   await update($, selection, () => null)
   await moveTo($, { changeId: change.id, row: picked.to })
@@ -558,6 +549,14 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta) return next(e)
+    // While a comment box is open, the prompt is the comment: it stays in the pane, no turn starts
+    const open = await read($, selection)
+    const change = open && (await openFile($)).shown.find(c => c.id === open.changeId)
+    // A slash command is never a comment, even one the engine did not mark as a command
+    if (open && change && e.text.trim() !== '' && !e.text.trim().startsWith('/')) {
+      await addLineComment($, change, open, e.text)
+      return { drop: `Comment added on ${change.file.split('/').pop()} ${whereOf(spanOf(toRows(change.diff), open))}` }
+    }
     const pending = await takePending($)
     return pending.length === 0 ? next(e) : next({ ...e, context: [...(e.context ?? []), asMessage(pending)] })
   }).catch(($, e, next) => next(e))
@@ -643,28 +642,13 @@ export const register: Register = on => {
       )
     }
 
+    // The comment is typed in the prompt box, which wraps: the `prompt.submit` hook takes it
     const composer = (change: Change, open: Selection) => (
       <Box key={`compose:${change.id}`} marginLeft={gutter} flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
         <Text>
           <Text bold>New comment</Text>
-          <Text dimColor> on {whereOf(spanOf(toRows(change.diff), open))} · Enter adds it, Esc leaves the box</Text>
+          <Text dimColor> on {whereOf(spanOf(toRows(change.diff), open))} · Esc, then type it in the prompt · q cancels</Text>
         </Text>
-        <Input
-          key="inline"
-          placeholder="Leave a comment"
-          submitLabel="add comment"
-          autoFocus
-          rows={2}
-          value=""
-          onInput={(value: string) => {
-            draft = value
-          }}
-          onSubmit={(value: string) => void addLineComment($, change, open, value)}
-        />
-        <Box gap={1}>
-          <Button key="addinline" variant="primary" label="Add comment" onPress={() => void addLineComment($, change, open, draft)} />
-          <Button key="cancel" label="Cancel" onPress={() => void keyCancel($)} />
-        </Box>
       </Box>
     )
 

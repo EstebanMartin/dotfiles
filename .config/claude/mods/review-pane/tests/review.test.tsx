@@ -57,7 +57,8 @@ test('a comment on a picked line range reaches the next prompt', async ($, on) =
 
   await $.ui.press({ plugin: 'review-pane', key: lines[1]! })
   await $.ui.press({ plugin: 'review-pane', key: lines[2]! })
-  await $.ui.input({ plugin: 'review-pane', key: 'inline', text: 'use wincmd here' })
+  const typed = await $.prompt.submit({ text: 'use wincmd here' })
+  expect(typed.drop).toContain('keymaps.lua L4-5')
   expect((await ui.find({ type: 'Text', text: /use wincmd here/ }))?.text).toBe('use wincmd here')
   await ui.unmount()
 
@@ -87,7 +88,7 @@ test('vim keys: j moves, v starts a range, c opens the comment box on it', async
   await $.ui.press({ plugin: 'review-pane', key: 'key:j' })
   await $.ui.press({ plugin: 'review-pane', key: 'key:c' })
   expect((await ui.find({ type: 'Text', text: /on L4-5/ }))?.text).toContain('L4-5')
-  await $.ui.input({ plugin: 'review-pane', key: 'inline', text: 'pair these' })
+  expect((await $.prompt.submit({ text: 'pair these' })).drop).toContain('L4-5')
   await ui.unmount()
 
   const sent = await $.prompt.submit({ text: 'hi' })
