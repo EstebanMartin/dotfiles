@@ -49,7 +49,9 @@ vim.opt.completeopt = {
 vim.diagnostic.config({
     severity_sort = true,     -- show higher severity first
     update_in_insert = false, -- don't update diagnostics in insert mode
-    jump = { float = true },  -- show float when jumping with ]d / [d
+    jump = {                  -- show float when jumping with ]d / [d
+        on_jump = function() vim.diagnostic.open_float({ scope = "cursor", focus = false }) end,
+    },
     virtual_text = {
         source = "if_many",   -- show source only with multiple clients
     },

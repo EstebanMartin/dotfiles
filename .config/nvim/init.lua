@@ -26,6 +26,9 @@ vim.filetype.add({ extension = { bru = "bru" } })
 -- ====================================================================
 -- Experimental UI2: floating cmdline and messages
 -- ====================================================================
+-- Nvim 0.13 moved msg timeout and cmd height into 'messagesopt' and errors on
+-- the old keys; 0.12 rejects the new items, so pass the old keys there instead
+local old_ui2 = not pcall(function() vim.opt.messagesopt:append("timeout:2000,maxheight:50") end)
 require("vim._core.ui2").enable({
     msg = {
         targets = {
@@ -58,14 +61,14 @@ require("vim._core.ui2").enable({
             confirm      = "cmd",
         },
         msg = {
-            timeout = 2000,
+            timeout = old_ui2 and 2000 or nil,
             height  = 0.1,
         },
         pager = {
             height = 0.5,
         },
         cmd = {
-            height = 0.5,
+            height = old_ui2 and 0.5 or nil,
         },
     },
 })
