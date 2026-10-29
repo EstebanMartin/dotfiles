@@ -597,3 +597,21 @@ test('a hunk separator names the function or section the hunk sits in', async ($
   expect((await ui.find({ type: 'Text', text: /⋯ line/ }))?.text).toContain('· func (b Behavior) Try()')
   await ui.unmount()
 })
+
+test('a long comment heading is named without its aside, and cut with …', async ($, on) => {
+  const now = '# --- Language servers (vim.lsp.enable in plugin/nvim-lspconfig.lua) ---\nbrew_install a\nbrew_install b\nbrew_install c\nbrew_install d\n'
+  on('command.register', () => ({ value: { command: 'review-pane' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('clock.now', () => ({ value: 1_700_000_000_000 }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.read', () => ({ value: now }))
+  on('tool.call', () => ({
+    result: { ...EDIT, filePath: '/setup.sh', originalFile: now.replace('install d', 'install e'), structuredPatch: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [' brew_install c', '-brew_install e', '+brew_install d'] }] },
+  }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Edit', file_path: '/setup.sh', old_string: 'e', new_string: 'd' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /⋯ line/ }))?.text).toMatch(/· Language servers$/)
+  await ui.unmount()
+})

@@ -55,11 +55,22 @@ const SECTION =
 /** Section markers around a comment heading, `# --- Tools ---` read as `Tools` */
 const MARKERS = /^(#|--|\/\/)\s*(---|===|─)+\s*|\s*(---|===|─)+\s*$/g
 
-/** The nearest function or section opening above a line (1-based), trimmed for a separator; '' when there is none */
+/** Section names longer than this end in … so the separator stays on one row */
+const CONTEXT_MAX = 40
+
+/**
+ * The nearest function or section opening above a line (1-based), trimmed for a separator: a comment
+ * heading loses its markers and any trailing (aside), a signature its opening brace. '' when none.
+ */
 function contextOf(lines: readonly string[], line: number): string {
   for (let i = Math.min(line - 2, lines.length - 1); i >= 0; i--) {
     const text = lines[i]!
-    if (SECTION.test(text)) return text.trim().replace(MARKERS, '').replace(/\s*[{(]\s*$/, '').slice(0, 60)
+    if (!SECTION.test(text)) continue
+    const isHeading = MARKERS.test(text.trim())
+    MARKERS.lastIndex = 0
+    let name = text.trim().replace(MARKERS, '').replace(/\s*[{(]\s*$/, '')
+    if (isHeading) name = name.replace(/\s*\([^)]*\)?\s*$/, '')
+    return name.length > CONTEXT_MAX ? `${name.slice(0, CONTEXT_MAX - 1).trimEnd()}…` : name
   }
   return ''
 }
