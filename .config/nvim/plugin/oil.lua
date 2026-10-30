@@ -32,16 +32,9 @@ local function setup()
     })
 end
 
----@return boolean
-local function is_dir_being_opened()
-    if vim.fn.argc() == 0 then
-        return false
-    end
-    local arg = vim.fn.argv(0) --[[@as string]]
-    return vim.fn.isdirectory(arg) == 1
-end
-
-if is_dir_being_opened() then
+-- opening a directory (nvim some/dir) must set oil up before the netrw-style
+-- BufEnter, so only defer otherwise (argv(0) is "" with no arguments)
+if vim.fn.isdirectory(vim.fn.argv(0)) == 1 then
     setup()
 else
     vim.schedule(setup)
@@ -50,5 +43,4 @@ end
 -- =================================================================
 -- -: Open parent directory
 -- =================================================================
-local open =  function() require("oil").open() end
-vim.keymap.set("n", "-", open, { desc = "Open parent directory" })
+vim.keymap.set("n", "-", function() require("oil").open() end, { desc = "Open parent directory" })

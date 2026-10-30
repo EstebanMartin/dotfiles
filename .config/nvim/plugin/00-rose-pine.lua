@@ -8,9 +8,7 @@ require("rose-pine").setup({
   extend_background_behind_borders = false,
   styles = {
     italic = true,
-    transparency = vim.uv.os_uname().sysname == 'Darwin'
-      or string.find(vim.uv.os_uname().sysname, 'Windows') ~= nil
-      or string.find(vim.uv.os_uname().release, 'WSL') ~= nil,
+    transparency = vim.fn.has("mac") + vim.fn.has("win32") + vim.fn.has("wsl") > 0,
   },
   highlight_groups = {
     Keyword = { italic = true },

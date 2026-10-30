@@ -36,10 +36,7 @@ vim.keymap.set("x", "gf", function()
         vim.api.nvim_set_current_win(vim.fn.win_getid(above_winnr))
     else
         -- no window above or below exists yet, so create one
-        local buf = vim.api.nvim_create_buf(true, false)
-        vim.api.nvim_open_win(buf, true, {
-            split = "below", win = 0,
-        })
+        vim.cmd("belowright new")
     end
 
     -- open the file, then jump to the line number if we found one
@@ -107,43 +104,18 @@ vim.keymap.set("n", "<C-w>D", function()
 end, { desc = "Diagnostics quickfix at nearest" })
 
 -- ====================================================================
--- Auto-close brackets
--- ====================================================================
--- Used by <C-l> below; mini.pairs (plugin/mini-nvim.lua) handles <CR>
--- inside a pair. Checking the character directly, rather than mapping on
--- a sequence like "{<Tab>": the latter makes "{" an ambiguous prefix of a
--- longer mapping, so Neovim holds it undisplayed for up to 'timeoutlen'
--- (1000ms here, unset) waiting to see whether <Tab> follows.
-local bracket_pairs = { ["{"] = "}", ["["] = "]", ["("] = ")" }
-
----@return string? closing bracket, if the cursor sits right after its opener
-local function pair_before_cursor()
-    local line = vim.api.nvim_get_current_line()
-    local col = vim.api.nvim_win_get_cursor(0)[2] -- 0-based byte offset
-    return bracket_pairs[line:sub(col, col)]
-end
-
----@return string character right after the cursor, if any
-local function char_after_cursor()
-    local line = vim.api.nvim_get_current_line()
-    local col = vim.api.nvim_win_get_cursor(0)[2] -- 0-based byte offset
-    return line:sub(col + 1, col + 1)
-end
-
--- ====================================================================
 -- <C-l>: add a missing closing bracket (insert mode)
 -- ====================================================================
+-- Checks the character before the cursor directly instead of mapping a
+-- sequence like "{<Tab>": that would make "{" an ambiguous prefix and Neovim
+-- would hold it undisplayed for 'timeoutlen'. mini.pairs (plugin/mini-nvim.lua)
+-- handles <CR> inside a pair.
 vim.keymap.set("i", "<C-l>", function()
-    local close = pair_before_cursor()
-    if not close then
-        return ""
-    end
-    -- already balanced (closer already follows the cursor): just step
-    -- over it instead of inserting a duplicate
-    if char_after_cursor() == close then
-        return "<Right>"
-    end
-    return close .. "<Left>"
+    local line, col = vim.api.nvim_get_current_line(), vim.api.nvim_win_get_cursor(0)[2]
+    local close = ({ ["{"] = "}", ["["] = "]", ["("] = ")" })[line:sub(col, col)]
+    if not close then return "" end
+    -- already balanced (closer follows the cursor): step over it, don't duplicate
+    return line:sub(col + 1, col + 1) == close and "<Right>" or close .. "<Left>"
 end, { expr = true, replace_keycodes = true, desc = "Add missing closing bracket" })
 
 -- ====================================================================

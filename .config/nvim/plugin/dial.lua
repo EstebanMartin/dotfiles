@@ -64,33 +64,9 @@ vim.schedule(function()
     -- Operators: only via g<C-a>/g<C-x>, so they never shadow a number
     -- later on the line
     dial.augends:register_group({
-        operators = {
-            augend.constant.new({
-                elements = { "&&", "||" },
-                word = false,
-                cyclic = true,
-            }),
-            augend.constant.new({
-                elements = { "==", "!=" },
-                word = false,
-                cyclic = true,
-            }),
-            augend.constant.new({
-                elements = { "<", ">" },
-                word = false,
-                cyclic = true,
-            }),
-            augend.constant.new({
-                elements = { "<=", ">=" },
-                word = false,
-                cyclic = true,
-            }),
-            augend.constant.new({
-                elements = { "===", "!==" },
-                word = false,
-                cyclic = true,
-            }),
-        },
+        operators = vim.tbl_map(function(elements)
+            return augend.constant.new({ elements = elements, word = false, cyclic = true })
+        end, { { "&&", "||" }, { "==", "!=" }, { "<", ">" }, { "<=", ">=" }, { "===", "!==" } }),
     })
 
     -- Lua spells "not equal" ~=, so it gets its own operators group
@@ -110,47 +86,15 @@ local function operators_group()
     return vim.bo.filetype == "lua" and "operators_lua" or "operators"
 end
 
--->> <C-a>: Dial increment {{{
-vim.keymap.set("n", "<C-a>",
-    function()
-        require("dial.map").manipulate("increment", "normal")
-    end,
-    { desc = "Dial increment" }
-)
-
-vim.keymap.set("x", "<C-a>",
-    function()
-        require("dial.map").manipulate("increment", "visual")
-    end,
-    { desc = "Dial increment (visual)" }
-)
-
--->> <C-x>: Dial decrement {{{
-vim.keymap.set("n", "<C-x>",
-    function()
-        require("dial.map").manipulate("decrement", "normal")
-    end,
-    { desc = "Dial decrement" }
-)
-
-vim.keymap.set("x", "<C-x>",
-    function()
-        require("dial.map").manipulate("decrement", "visual")
-    end,
-    { desc = "Dial decrement (visual)" }
-)
-
--->> g<C-a> / g<C-x>: Dial operators (==/!=, </>, &&/||, ...) {{{
-vim.keymap.set("n", "g<C-a>",
-    function()
-        require("dial.map").manipulate("increment", "normal", operators_group())
-    end,
-    { desc = "Dial operator forward" }
-)
-
-vim.keymap.set("n", "g<C-x>",
-    function()
-        require("dial.map").manipulate("decrement", "normal", operators_group())
-    end,
-    { desc = "Dial operator backward" }
-)
+-->> <C-a> / <C-x>: Dial increment / decrement
+-->> g<C-a> / g<C-x>: Dial operators (==/!=, </>, &&/||, ...)
+for key, dir in pairs({ ["<C-a>"] = "increment", ["<C-x>"] = "decrement" }) do
+    vim.keymap.set("n", key, function() require("dial.map").manipulate(dir, "normal") end,
+        { desc = "Dial " .. dir })
+    vim.keymap.set("x", key, function() require("dial.map").manipulate(dir, "visual") end,
+        { desc = "Dial " .. dir .. " (visual)" })
+    -- operators only via g<key>, and only in normal mode
+    vim.keymap.set("n", "g" .. key, function()
+        require("dial.map").manipulate(dir, "normal", operators_group())
+    end, { desc = "Dial operator " .. (dir == "increment" and "forward" or "backward") })
+end
