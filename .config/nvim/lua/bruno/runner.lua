@@ -43,9 +43,9 @@ local function normalize(r, pretty)
     local ct = header(res.headers, "content-type")
     local ok = type(res.status) == "number"
     local body
-    local binary = ct and ct:lower():match("^%s*(image/)") or ct and ct:lower():match("^%s*(audio/)")
-        or ct and ct:lower():match("^%s*(video/)") or ct and ct:lower():match("octet%-stream")
-        or ct and ct:lower():match("pdf")
+    local lct = (ct or ""):lower()
+    local binary = lct:match("^%s*image/") or lct:match("^%s*audio/") or lct:match("^%s*video/")
+        or lct:match("octet%-stream") or lct:match("pdf")
     if r.error then
         body = tostring(r.error)
     elseif binary then

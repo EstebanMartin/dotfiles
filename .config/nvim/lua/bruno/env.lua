@@ -4,23 +4,16 @@ local M = {}
 local store = vim.fs.joinpath(vim.fn.stdpath("state"), "bruno.json")
 
 local function load()
-    local f = io.open(store, "r")
-    if not f then return {} end
-    local s = f:read("*a")
-    f:close()
-    local ok, d = pcall(vim.json.decode, s)
+    local ok, d = pcall(function() return vim.json.decode(table.concat(vim.fn.readfile(store), "\n")) end)
     return ok and type(d) == "table" and d or {}
 end
 
 ---@param root string
 ---@return string[]
 function M.list(root)
-    local names = {}
-    for name, t in vim.fs.dir(vim.fs.joinpath(root, "environments")) do
-        if t == "file" and name:match("%.bru$") then
-            names[#names + 1] = name:gsub("%.bru$", "")
-        end
-    end
+    local names = vim.iter(vim.fs.dir(vim.fs.joinpath(root, "environments")))
+        :map(function(name, t) return t == "file" and name:match("^(.+)%.bru$") or nil end)
+        :totable()
     table.sort(names)
     return names
 end
@@ -36,12 +29,8 @@ end
 function M.set(root, name)
     local d = load()
     d[root] = name
-    vim.fn.mkdir(vim.fn.fnamemodify(store, ":h"), "p")
-    local f = io.open(store, "w")
-    if f then
-        f:write(vim.json.encode(d))
-        f:close()
-    end
+    vim.fn.mkdir(vim.fs.dirname(store), "p")
+    vim.fn.writefile({ vim.json.encode(d) }, store)
 end
 
 ---@param root string

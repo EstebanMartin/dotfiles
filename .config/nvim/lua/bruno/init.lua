@@ -20,8 +20,7 @@ end
 
 local function stop_spinner()
     if run_state.timer then
-        run_state.timer:stop()
-        run_state.timer:close()
+        vim.fn.timer_stop(run_state.timer)
         run_state.timer = nil
     end
     run_state.running = nil
@@ -32,9 +31,7 @@ end
 local function start_spinner(win)
     stop_spinner()
     run_state.running = { win = win, start = vim.uv.hrtime() }
-    local timer = vim.uv.new_timer()
-    run_state.timer = timer
-    timer:start(0, 100, vim.schedule_wrap(function() vim.cmd("redrawstatus!") end))
+    run_state.timer = vim.fn.timer_start(100, function() vim.cmd("redrawstatus!") end, { ["repeat"] = -1 })
 end
 
 ---@param win integer window being drawn

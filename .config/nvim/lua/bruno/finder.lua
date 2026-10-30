@@ -10,15 +10,10 @@ local METHODS = { get = true, post = true, put = true, delete = true, patch = tr
 ---@return { name: string?, seq: number?, method: string? }
 local function parse_head(path)
     local out = {}
-    -- io.open + explicit close: io.lines leaves the fd open on early exit until GC,
-    -- which exhausts the fd limit on big collections
-    local f = io.open(path, "r")
-    if not f then return out end
     local in_meta = false
-    local n = 0
-    for line in f:lines() do
-        n = n + 1
-        if n > 40 then break end
+    -- readfile with a max reads only the head and holds no fd afterwards
+    local head = vim.fn.filereadable(path) == 1 and vim.fn.readfile(path, "", 40) or {}
+    for _, line in ipairs(head) do
         if line:match("^meta%s*{") then
             in_meta = true
         elseif in_meta and line:match("^}") then
@@ -34,7 +29,6 @@ local function parse_head(path)
             end
         end
     end
-    f:close()
     return out
 end
 
