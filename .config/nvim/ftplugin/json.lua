@@ -36,9 +36,22 @@ function _G._json_path(node)
 end
 
 -- =============================================================================
--- Winbar: show the current jq path as the cursor moves
+-- Ghost text: show the json path at the end of the cursor line
 -- =============================================================================
-vim.wo.winbar = "%{%v:lua._json_path()%}"
+-- One group per buffer, cleared on each run, so re-running this ftplugin
+-- (:e) replaces the autocmd instead of stacking another.
+local ns = vim.api.nvim_create_namespace("json_path")
+vim.api.nvim_create_autocmd("CursorMoved", {
+    group = vim.api.nvim_create_augroup("json_path_" .. vim.api.nvim_get_current_buf(), { clear = true }),
+    buffer = 0,
+    callback = function()
+        vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+        local path = _json_path()
+        if path ~= "" then
+            vim.api.nvim_buf_set_extmark(0, ns, vim.fn.line(".") - 1, 0, { virt_text = { { path, "Comment" } } })
+        end
+    end,
+})
 
 -- =============================================================================
 -- gO: list every JSON path, pick one, and jump to it

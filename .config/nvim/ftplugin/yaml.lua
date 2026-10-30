@@ -36,16 +36,22 @@ function _G._yaml_path(node)
 end
 
 -- =============================================================================
--- Winbar: show the current yaml path as the cursor moves
+-- Ghost text: show the yaml path at the end of the cursor line
 -- =============================================================================
--- Setting it evaluates the expression immediately, which parses the whole
--- buffer; defer so that doesn't block startup on large files.
-local win, win_buf = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
-vim.schedule(function()
-    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == win_buf then
-        vim.wo[win].winbar = "%{%v:lua._yaml_path()%}"
-    end
-end)
+-- One group per buffer, cleared on each run, so re-running this ftplugin
+-- (:e) replaces the autocmd instead of stacking another.
+local ns = vim.api.nvim_create_namespace("yaml_path")
+vim.api.nvim_create_autocmd("CursorMoved", {
+    group = vim.api.nvim_create_augroup("yaml_path_" .. vim.api.nvim_get_current_buf(), { clear = true }),
+    buffer = 0,
+    callback = function()
+        vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+        local path = _yaml_path()
+        if path ~= "" then
+            vim.api.nvim_buf_set_extmark(0, ns, vim.fn.line(".") - 1, 0, { virt_text = { { path, "Comment" } } })
+        end
+    end,
+})
 
 -- =============================================================================
 -- gO: list every YAML path, pick one, and jump to it
