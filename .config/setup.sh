@@ -234,8 +234,8 @@ brew_install mycli
 # --- Install ---
 brew_cask_install ghostty
 
-# --- Font: JetBrainsMono Nerd Font (used in ~/.config/ghostty/config) ---
-brew_cask_install font-jetbrains-mono-nerd-font
+# --- Font: Iosevka (Iosevka Term is used in ~/.config/ghostty/config) ---
+brew_cask_install font-iosevka
 
 # --- Nvim.app: opens files from Finder in nvim inside Ghostty (source in scripts/applescript/nvim-app.applescript) ---
 # Rebuilt only when the source or nvim's path changes; the hash of both is stored in the app's Info.plist
