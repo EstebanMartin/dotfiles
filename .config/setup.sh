@@ -177,11 +177,15 @@ brew_install fish-lsp
 brew_install lua-language-server
 brew_install yaml-language-server
 
-# --- Tools used by ftplugin/json.lua and lua/bruno/ ---
+# --- Tools used by ftplugin/json.lua, lua/bruno/ and lua/opencollection/ ---
 brew_install jq
 brew_install bruno-cli
 brew_install node
 npm_install fixjson
+
+# --- 1Password CLI (`op`): resolves Bruno secrets in lua/bruno/ and lua/opencollection/ ---
+# Turn on Settings > Developer > "Integrate with 1Password CLI" in the app to sign in with it
+brew_cask_install 1password-cli
 
 # =============================================================================
 # Go
@@ -232,6 +236,49 @@ brew_cask_install ghostty
 
 # --- Font: JetBrainsMono Nerd Font (used in ~/.config/ghostty/config) ---
 brew_cask_install font-jetbrains-mono-nerd-font
+
+# --- Nvim.app: opens files from Finder in nvim inside Ghostty (source in scripts/applescript/nvim-app.applescript) ---
+# Rebuilt only when the source or nvim's path changes; the hash of both is stored in the app's Info.plist
+NVIM_APP="$HOME/Applications/Nvim.app"
+NVIM_APP_SRC="$HOME/.config/scripts/applescript/nvim-app.applescript"
+NVIM_PATH="$(command -v nvim)"
+NVIM_APP_HASH="$({ cat "$NVIM_APP_SRC"; echo "$NVIM_PATH"; } | shasum | cut -d' ' -f1)"
+if [ "$(/usr/libexec/PlistBuddy -c "Print :NvimAppHash" "$NVIM_APP/Contents/Info.plist" 2>/dev/null || true)" != "$NVIM_APP_HASH" ]; then
+  mkdir -p "$HOME/Applications"
+  rm -rf "$NVIM_APP"
+  sed "s|@NVIM@|$NVIM_PATH|" "$NVIM_APP_SRC" | osacompile -o "$NVIM_APP"
+
+  # Register as an editor for any file, so it shows up in Finder's "Open With"
+  plist="$NVIM_APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy \
+    -c "Add :CFBundleIdentifier string com.eramirezq.nvim" \
+    -c "Set :CFBundleDocumentTypes:0:CFBundleTypeRole Editor" \
+    -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes array" \
+    -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string public.text" \
+    -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:1 string public.data" "$plist"
+
+  # Icon: the logo Homebrew's neovim ships (only 128px), replacing the default droplet icon
+  icon_src="$(brew --prefix)/share/icons/hicolor/128x128/apps/nvim.png"
+  iconset="$(mktemp -d)/nvim.iconset"
+  mkdir "$iconset"
+  for s in 16 32 128 256 512; do
+    sips -z "$s" "$s" "$icon_src" --out "$iconset/icon_${s}x${s}.png" >/dev/null
+    sips -z "$((s * 2))" "$((s * 2))" "$icon_src" --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$iconset" -o "$NVIM_APP/Contents/Resources/nvim.icns"
+  rm -rf "$(dirname "$iconset")"
+  /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile nvim" "$plist"
+  rm -f "$NVIM_APP/Contents/Resources/Assets.car" "$NVIM_APP/Contents/Resources/droplet.icns"
+
+  # Written last, so a build that fails partway is retried on the next run
+  /usr/libexec/PlistBuddy -c "Add :NvimAppHash string $NVIM_APP_HASH" "$plist"
+
+  # Editing Info.plist breaks the signature, so re-sign ad hoc; then tell Launch Services about the app
+  codesign --force --sign - "$NVIM_APP" 2>/dev/null
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$NVIM_APP"
+  echo "Built $NVIM_APP"
+fi
 
 # =============================================================================
 # Amethyst (tiling window manager; config in ~/.config/amethyst)
