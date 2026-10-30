@@ -2,47 +2,33 @@
 -- _G._json_path: build jq-style path from node under cursor (on-demand,
 -- fast regardless of file size since it only walks up from the cursor)
 -- =============================================================================
----@return string path jq-style path to the node under the cursor, "" if none
-function _G._json_path()
+---@param node TSNode? defaults to the node under the cursor
+---@return string path jq-style path to the node, "" if none
+function _G._json_path(node)
     local buf = vim.api.nvim_get_current_buf()
     local parser = vim.treesitter.get_parser(buf, "json")
     -- get_node only reads parsed trees, so parse first
     if not parser or not parser:parse()[1] then return "" end -- malformed/empty JSON has no tree
+    node = node or vim.treesitter.get_node({ lang = "json" })
 
-    -- the smallest node in the syntax tree that covers the cursor
-    local node = vim.treesitter.get_node({ lang = "json" })
-
-    -- walk up from the cursor's node to the root, building the path
-    -- one piece at a time (we build it backwards, so each new piece
-    -- gets inserted at the front)
+    -- walk up to the root, inserting each piece at the front
     local path = {}
     while node do
         local parent = node:parent()
-
         if node:type() == "pair" then
-            -- this node is a "key: value" entry; grab the key's text
-            -- and strip the surrounding quotes, e.g. "\"foo\"" -> "foo"
-            local key_node = node:field("key")[1]
-            if key_node then
-                local key_text = vim.treesitter.get_node_text(key_node, buf)
-                    :gsub('^"(.-)"$', "%1")
-                table.insert(path, 1, "." .. key_text)
+            local key = node:field("key")[1]
+            if key then
+                local text = vim.treesitter.get_node_text(key, buf):gsub('^"(.-)"$', "%1")
+                table.insert(path, 1, "." .. text)
             end
         elseif parent and parent:type() == "array" then
-            -- this node is an element inside an array; count how many
-            -- named siblings come before it to get its index
-            local index = 0
-            for child in parent:iter_children() do
-                if child:named() then
-                    if child == node then
-                        table.insert(path, 1, ("[%d]"):format(index))
-                        break
-                    end
-                    index = index + 1
-                end
+            -- index = number of named siblings before it
+            local index, sibling = 0, node:prev_named_sibling()
+            while sibling do
+                index, sibling = index + 1, sibling:prev_named_sibling()
             end
+            table.insert(path, 1, ("[%d]"):format(index))
         end
-
         node = parent
     end
 
@@ -55,85 +41,24 @@ end
 vim.wo.winbar = "%{%v:lua._json_path()%}"
 
 -- =============================================================================
--- gO: build all JSON paths on-demand, pick one, and jump to it
+-- gO: list every JSON path, pick one, and jump to it
 -- =============================================================================
-vim.keymap.set("n", "gO",
-    function()
-        local buf = vim.api.nvim_get_current_buf()
-        local parser = vim.treesitter.get_parser(buf, "json")
-        if not parser then
-            vim.notify("treesitter parser for json not available", vim.log.levels.ERROR)
-            return
-        end
-
-        local tree = parser:parse()[1]
-        if not tree then
-            vim.notify("Failed to parse buffer", vim.log.levels.ERROR)
-            return
-        end
-
-        -- walk the whole tree once, right now, to collect every path
-        local paths = {}
-
-        -- recursively visits every node, building up the jq-style path as
-        -- it goes; each time it finds a key or an array element, it records
-        -- that path together with the line it starts on
-        ---@param node TSNode
-        ---@param path string jq-style path accumulated so far
-        local function walk(node, path)
-            local array_index = 0 -- tracks position for array elements
-
-            for child in node:iter_children() do
-                if not child:named() then goto continue end -- skip punctuation/whitespace nodes
-
-                local child_path = path
-
-                if child:type() == "pair" then
-                    -- this child is a "key: value" entry; add ".key" to the path
-                    local key_node = child:field("key")[1]
-                    if key_node then
-                        local key_text = vim.treesitter.get_node_text(key_node, buf)
-                            :gsub('^"(.-)"$', "%1") -- strip surrounding quotes
-                        child_path = path .. "." .. key_text
-                    end
-                    local start_row = child:range()
-                    table.insert(paths, { label = child_path, lnum = start_row + 1, col = 0 })
-                elseif node:type() == "array" then
-                    -- this child is an element inside an array; add "[index]" to the path
-                    child_path = path .. ("[%d]"):format(array_index)
-                    local start_row = child:range()
-                    table.insert(paths, { label = child_path, lnum = start_row + 1, col = 0 })
-                    array_index = array_index + 1
-                end
-
-                -- recurse into this child, carrying its path forward
-                walk(child, child_path)
-                ::continue::
-            end
-        end
-        walk(tree:root(), "")
-
-        if #paths == 0 then
-            vim.notify("No JSON paths found", vim.log.levels.WARN)
-            return
-        end
-
-        -- sort by line number so the picker reads top-to-bottom, matching
-        -- the file's actual structure
-        table.sort(paths, function(a, b) return a.lnum < b.lnum end)
-
-        -- show a flat list of all paths; user picks one to jump to
-        vim.ui.select(paths, {
-            prompt      = "Select JSON path:",
-            format_item = function(item) return item.label end,
-        }, function(choice)
-            if not choice then return end
-            vim.api.nvim_win_set_cursor(0, { choice.lnum, choice.col })
-            vim.cmd.normal({ "zz", bang = true }) -- center the screen on the line
-        end)
-    end,
-    { buffer = true, desc = "Jump to JSON path" }
-)
+vim.keymap.set("n", "gO", function()
+    local root = vim.treesitter.get_parser(0, "json"):parse()[1]:root()
+    local query = vim.treesitter.query.parse("json", "[(pair) @n (array (_) @n)]")
+    local paths = {}
+    for _, node in query:iter_captures(root, 0) do
+        paths[#paths + 1] = { label = _json_path(node), lnum = node:range() + 1 }
+    end
+    vim.ui.select(paths, {
+        prompt      = "Select JSON path:",
+        format_item = function(item) return item.label end,
+    }, function(choice)
+        if not choice then return end
+        vim.api.nvim_win_set_cursor(0, { choice.lnum, 0 })
+        vim.cmd.normal({ "zz", bang = true })
+    end)
+end, { buffer = true, desc = "Jump to JSON path" })
 
 -- =============================================================================
 -- <localleader>y: copy the jq path under the cursor to the clipboard

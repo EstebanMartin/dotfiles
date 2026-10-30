@@ -44,27 +44,11 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 -- <localleader>a: Alternate test file
 -- =================================================================
 vim.keymap.set("n", "<localleader>a", function()
-    -- full path of the file currently open
+    -- _test.go -> .go, anything else -> _test.go
     local path = vim.api.nvim_buf_get_name(0)
-    if path == "" then
-        vim.notify("Current buffer has no file name", vim.log.levels.WARN)
-        return
-    end
-
-    -- figure out the "opposite" filename:
-    -- if we're in a _test.go file, strip "_test" to get the source file
-    -- otherwise, add "_test" to get the test file
-    local is_test_file = path:match("_test%.go$") ~= nil
-    ---@type string
-    local target_path
-    if is_test_file then
-        target_path = path:gsub("_test%.go$", ".go")
-    else
-        target_path = path:gsub("%.go$", "_test.go")
-    end
-
-    -- open the other file
-    vim.cmd.edit(vim.fn.fnameescape(target_path))
+    local other = path:gsub("_test%.go$", ".go")
+    if other == path then other = path:gsub("%.go$", "_test.go") end
+    vim.cmd.edit(vim.fn.fnameescape(other))
 end, { buffer = true, desc = "Alternate test file" })
 
 -- =================================================================
@@ -221,25 +205,6 @@ vim.keymap.set("n", "<localleader>c", function()
 end, { buffer = true, desc = "Toggle test coverage" })
 
 -- =================================================================
--- Split direction helper (used by <localleader>r)
--- =================================================================
--- Whether a new split off `win` should stack "below" or sit to the "right",
--- based on available space rather than always defaulting to one direction.
---
--- Compares cells, not pixels, but a terminal cell is roughly twice as tall as
--- it is wide, so raw column/line counts would call almost every window
--- "wide". Scaling height by 2 approximates the on-screen aspect instead: a
--- window that reads as taller than it is wide gets stacked below; one that
--- reads as wider than tall gets a side-by-side split.
----@param win integer
----@return "below"|"right"
-local function split_direction(win)
-    local width = vim.api.nvim_win_get_width(win)
-    local height = vim.api.nvim_win_get_height(win) * 2
-    return height > width and "below" or "right"
-end
-
--- =================================================================
 -- <localleader>d: Debug
 -- =================================================================
 -- Runs the service in a terminal row, then attaches dlv: code / terminal /
@@ -361,16 +326,8 @@ vim.keymap.set("n", "<localleader>r", function()
         and vim.fn.filereadable(root .. "/Makefile") == 1
         and vim.iter(vim.fn.readfile(root .. "/Makefile")):any(function(l) return l:match("^run:") ~= nil end)
 
-    local cmd = ("cd %s && %s"):format(
-        vim.fn.shellescape(root),
-        has_make_run and "make run" or "go run ."
-    )
-
-    -- open a terminal in a split, direction depending on available space,
-    -- and run the command in it
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_open_win(buf, true, { split = split_direction(0), win = 0 })
-    vim.fn.jobstart(cmd, { term = true })
+    vim.cmd("botright new") -- full-width terminal row below the code
+    vim.fn.jobstart(has_make_run and "make run" or "go run .", { term = true, cwd = root })
 end, { buffer = true, desc = "Run" })
 
 -- =================================================================
@@ -402,15 +359,11 @@ vim.keymap.set("n", "<localleader>t",
                     -- something failed: show the test output so we can
                     -- see what went wrong (go test mixes stdout/stderr)
                     local output = result.stdout ~= "" and result.stdout or result.stderr
-                    if not output then return end
 
                     -- open the output in a real terminal buffer below,
                     -- which keeps the test runner's colors intact
-                    local buf = vim.api.nvim_create_buf(false, true)
-                    vim.api.nvim_open_win(buf, true, {
-                        split = "below", win = 0,
-                    })
-                    local chan = vim.api.nvim_open_term(buf, {})
+                    vim.cmd("belowright new")
+                    local chan = vim.api.nvim_open_term(0, {})
                     -- terminals expect \r\n line endings to render correctly
                     vim.fn.chansend(chan, (output:gsub("\n", "\r\n")))
                 end)
