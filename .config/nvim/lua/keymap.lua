@@ -82,6 +82,14 @@ vim.api.nvim_create_autocmd("TermOpen", {
 })
 
 -- ====================================================================
+-- <Esc><Esc>: leave terminal mode
+-- ====================================================================
+-- a single <Esc> stays free for TUI apps running in the terminal
+vim.keymap.set("t", "<Esc><Esc>", [[<C-\><C-n>]], {
+    desc = "Terminal: normal mode",
+})
+
+-- ====================================================================
 -- <C-w>D: diagnostics to quickfix, cursor at nearest
 -- ====================================================================
 -- sends all diagnostics (errors/warnings) to the quickfix list, then
@@ -110,49 +118,49 @@ end, { desc = "Diagnostics quickfix at nearest" })
 -- sequence like "{<Tab>": that would make "{" an ambiguous prefix and Neovim
 -- would hold it undisplayed for 'timeoutlen'. mini.pairs (plugin/mini-nvim.lua)
 -- handles <CR> inside a pair.
-vim.keymap.set("i", "<C-l>", function()
-    local line, col = vim.api.nvim_get_current_line(), vim.api.nvim_win_get_cursor(0)[2]
-    local close = ({ ["{"] = "}", ["["] = "]", ["("] = ")" })[line:sub(col, col)]
-    if not close then return "" end
-    -- already balanced (closer follows the cursor): step over it, don't duplicate
-    return line:sub(col + 1, col + 1) == close and "<Right>" or close .. "<Left>"
-end, { expr = true, replace_keycodes = true, desc = "Add missing closing bracket" })
+-- vim.keymap.set("i", "<C-l>", function()
+--     local line, col = vim.api.nvim_get_current_line(), vim.api.nvim_win_get_cursor(0)[2]
+--     local close = ({ ["{"] = "}", ["["] = "]", ["("] = ")" })[line:sub(col, col)]
+--     if not close then return "" end
+--     -- already balanced (closer follows the cursor): step over it, don't duplicate
+--     return line:sub(col + 1, col + 1) == close and "<Right>" or close .. "<Left>"
+-- end, { expr = true, replace_keycodes = true, desc = "Add missing closing bracket" })
 
 -- ====================================================================
 -- <C-y>: accept completion (insert mode)
 -- ====================================================================
 -- normally <C-y> just confirms the selected completion item, but this
 -- makes it smarter about what to do depending on the completion menu's state
-vim.keymap.set("i", "<C-y>",
-    ---@return string
-    function()
-        -- no completion menu is showing, so just do the normal thing
-        if vim.fn.pumvisible() == 0 then
-            return "<C-y>"
-        end
-
-        local info = vim.fn.complete_info({ "selected", "items" })
-
-        -- the menu is showing but has no items, so cancel it
-        if not info.items or #info.items == 0 then
-            return "<C-e>"
-        end
-
-        -- menu is showing but nothing is selected yet: select the
-        -- first item, then confirm it
-        if info.selected == -1 then
-            return "<C-n><C-y>"
-        end
-
-        -- an item is already selected, so just confirm it
-        return "<C-y>"
-    end,
-    {
-        expr = true, -- the function's return value is treated as keys to press
-        replace_keycodes = true,
-        desc = "Accept completion",
-    }
-)
+-- vim.keymap.set("i", "<C-y>",
+--     ---@return string
+--     function()
+--         -- no completion menu is showing, so just do the normal thing
+--         if vim.fn.pumvisible() == 0 then
+--             return "<C-y>"
+--         end
+--
+--         local info = vim.fn.complete_info({ "selected", "items" })
+--
+--         -- the menu is showing but has no items, so cancel it
+--         if not info.items or #info.items == 0 then
+--             return "<C-e>"
+--         end
+--
+--         -- menu is showing but nothing is selected yet: select the
+--         -- first item, then confirm it
+--         if info.selected == -1 then
+--             return "<C-n><C-y>"
+--         end
+--
+--         -- an item is already selected, so just confirm it
+--         return "<C-y>"
+--     end,
+--     {
+--         expr = true, -- the function's return value is treated as keys to press
+--         replace_keycodes = true,
+--         desc = "Accept completion",
+--     }
+-- )
 
 -- ====================================================================
 -- Indent while remaining in visual mode
